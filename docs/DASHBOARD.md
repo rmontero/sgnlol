@@ -4,7 +4,7 @@ The dashboard at `/dashboard` reads the events and delivery records stored by th
 
 ## Sign in and inspect activity
 
-Open [the production dashboard](https://sgn.lol/dashboard). Public HTTP port 80 redirects to HTTPS; the app listens on internal port 8000. Use the browser's HTTP Basic sign-in prompt and keep credentials out of URLs and source control.
+Open [the production dashboard](https://sgn.lol/dashboard). Public HTTP port 80 redirects to HTTPS; the app listens on internal port 8000. Use the dashboard's sign-in form and keep credentials out of URLs and source control.
 
 On an empty accounts table, `DASHBOARD_USERNAME` (default `rob`) and `DASHBOARD_PASSWORD` bootstrap the first admin. Accounts then persist in SQLite; changing those variables does **not** reset existing passwords or restore disabled users. Without any account, access returns 503.
 
@@ -14,7 +14,7 @@ On an empty accounts table, `DASHBOARD_USERNAME` (default `rob`) and `DASHBOARD_
 | Analyst | Events, deliveries, routing | Assigned organization IDs only |
 | Viewer | Events and scores | Assigned organization IDs only |
 
-Admins use **Users & access** to create users, change passwords/roles/organization assignments, or disable access. Assign `talacha` for the current installation. New and changed passwords require 12–1024 printable ASCII characters and are stored as salted scrypt hashes. Passwords cannot be retrieved. The last active admin cannot be disabled or demoted. To rotate your own password, save it and sign in again with the new password when prompted. Basic authentication has no application logout button; close the browser session to clear remembered credentials.
+Admins use **Users & access** to create users, change passwords/roles/organization assignments, or disable access. Assign `talacha` for the current installation. New and changed passwords require 12–1024 printable ASCII characters and are stored as salted scrypt hashes. Passwords cannot be retrieved. The last active admin cannot be disabled or demoted. To rotate your own password, save it and sign in again. Browser sessions use a Secure, HttpOnly, SameSite=Strict cookie, expire after 12 hours, and are revoked on account changes or Sign out. Session tokens are stored only as hashes in SQLite. Signing in replaces the previous session for that account. API clients can still supply Basic credentials explicitly, but the server does not issue browser authentication challenges.
 
 Every request checks the account in SQLite, so disabling an account or changing its role affects the next request, including cached reads. Non-admin scope is derived from that account, enforced through parameterized SQL on events, details, aggregates, and deliveries, and included in cache keys. This is application-enforced row isolation: SQLite has no native RLS policies. CLI/database administrators remain trusted and unrestricted. A future PostgreSQL migration can add database-native RLS without changing the role model.
 

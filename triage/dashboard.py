@@ -8,7 +8,7 @@ from threading import Lock
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -41,6 +41,10 @@ def install_dashboard(app, settings):
         accounts = request.app.state.accounts
         if not accounts.configured():
             raise HTTPException(503, 'Dashboard is not configured')
+        principal = accounts.session(request.cookies.get('sgnlol_session')) if request.url.path != '/api/dashboard/login' else None
+        if principal:
+            request.state.principal = principal
+            return principal
         username = credentials.username if credentials else ''
         password = credentials.password if credentials else ''
         # Limit repeated incorrect passwords; successful authenticated reads are not throttled.
@@ -58,7 +62,7 @@ def install_dashboard(app, settings):
                     if len(attempts) >= 4000:
                         attempts.clear()
                     attempts[username[:64]] = (count + 1, until)
-            raise HTTPException(401, 'Authentication required', headers={'WWW-Authenticate': 'Basic realm="sgnlol", charset="UTF-8"'})
+            raise HTTPException(401, 'Sign in to continue')
         with attempt_lock:
             attempts.pop(username[:64], None)
         request.state.principal = principal
@@ -76,13 +80,70 @@ def install_dashboard(app, settings):
     @app.middleware('http')
     async def dashboard_headers(request: Request, call_next):
         response = await call_next(request)
+        if response.status_code == 401 and request.url.path in ('/dashboard', '/dashboard/'):
+            response = RedirectResponse('/dashboard/login', status_code=303)
         if request.url.path in ('/', '/dashboard') or request.url.path.startswith(('/dashboard/', '/api/dashboard/')):
             response.headers.update(SECURITY_HEADERS)
+            if 'www-authenticate' in response.headers:
+                del response.headers['www-authenticate']
         return response
 
     @app.get('/', include_in_schema=False)
     def home():
         return RedirectResponse('/dashboard', status_code=303)
+
+    @app.get('/dashboard/login', include_in_schema=False)
+    def login_page():
+        return FileResponse(STATIC_DIR / 'login.html', media_type='text/html')
+
+    @app.get('/dashboard/login/{filename}', include_in_schema=False)
+    def login_asset(filename: str):
+        files = {'login.js': 'text/javascript', 'style.css': 'text/css'}
+        if filename not in files:
+            raise HTTPException(404, 'Asset not found')
+        return FileResponse(STATIC_DIR / filename, media_type=files[filename])
+
+    async def verified_json(request):
+        if request.headers.get('x-sgnlol-request') != 'dashboard':
+            raise HTTPException(403, 'Missing request verification header')
+        origin = request.headers.get('origin')
+        if origin and origin not in (f'{request.url.scheme}://{request.url.netloc}', f'https://{request.url.netloc}'):
+            raise HTTPException(403, 'Origin not allowed')
+        if request.headers.get('content-type', '').split(';')[0] != 'application/json':
+            raise HTTPException(415, 'JSON body required')
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 16384:
+                raise HTTPException(413, 'Request too large')
+        try:
+            value = json.loads(body)
+            if not isinstance(value, dict):
+                raise ValueError()
+            return value
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(400, 'Invalid request') from None
+
+    @app.post('/api/dashboard/login')
+    async def login(request: Request):
+        value = await verified_json(request)
+        username, password = value.get('username'), value.get('password')
+        if not isinstance(username, str) or not isinstance(password, str):
+            raise HTTPException(400, 'Username and password required')
+        principal = authorize(request, HTTPBasicCredentials(username=username, password=password))
+        token = request.app.state.accounts.new_session(principal.username)
+        response = JSONResponse({'ok': True})
+        response.set_cookie('sgnlol_session', token, max_age=43200, httponly=True,
+                            secure=request.url.hostname not in ('localhost', '127.0.0.1', 'testserver'), samesite='strict')
+        return response
+
+    @app.post('/api/dashboard/logout')
+    async def logout(request: Request):
+        await verified_json(request)
+        request.app.state.accounts.end_session(request.cookies.get('sgnlol_session', ''))
+        response = JSONResponse({'ok': True})
+        response.delete_cookie('sgnlol_session', httponly=True, samesite='strict')
+        return response
 
     def analytics(request):
         from .analytics import Analytics

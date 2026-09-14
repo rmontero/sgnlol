@@ -33,12 +33,12 @@ def dashboard(tmp_path):
 )
 def test_every_dashboard_surface_requires_auth(dashboard, path):
     client, _, _ = dashboard
-    response = client.get(path)
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"].startswith("Basic")
+    response = client.get(path, follow_redirects=False)
+    assert response.status_code == (303 if path == "/dashboard" else 401)
+    assert "www-authenticate" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
-    assert client.get(path, auth=("rob", "wrong-password")).status_code == 401
+    assert client.get(path, auth=("rob", "wrong-password"), follow_redirects=False).status_code == (303 if path == "/dashboard" else 401)
 
 
 def test_disabled_dashboard_and_unaffected_health(dashboard):

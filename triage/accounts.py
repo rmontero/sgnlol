@@ -61,7 +61,34 @@ class Accounts:
             store.db.execute('''CREATE TABLE IF NOT EXISTS dashboard_users (
                 username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, role TEXT NOT NULL,
                 orgs TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, updated_at REAL NOT NULL)''')
+            store.db.execute('''CREATE TABLE IF NOT EXISTS dashboard_sessions (
+                token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires_at REAL NOT NULL)''')
             store.db.commit()
+
+    def new_session(self, username):
+        token = secrets.token_urlsafe(32)
+        with self.store._lock:
+            self.store.db.execute('DELETE FROM dashboard_sessions WHERE expires_at <= ? OR username = ?', (time.time(), username))
+            self.store.db.execute('INSERT INTO dashboard_sessions VALUES (?,?,?)',
+                                  (hashlib.sha256(token.encode()).hexdigest(), username, time.time() + 43200))
+            self.store.db.commit()
+        return token
+
+    def session(self, token):
+        if not token or len(token) > 128:
+            return None
+        with self.store._lock:
+            row = self.store.db.execute('''SELECT u.* FROM dashboard_sessions s
+                JOIN dashboard_users u ON u.username=s.username
+                WHERE s.token_hash=? AND s.expires_at>? AND u.active=1''',
+                (hashlib.sha256(token.encode()).hexdigest(), time.time())).fetchone()
+        return Principal(row['username'], row['role'], tuple(json.loads(row['orgs']))) if row else None
+
+    def end_session(self, token):
+        with self.store._lock:
+            self.store.db.execute('DELETE FROM dashboard_sessions WHERE token_hash=?',
+                                  (hashlib.sha256(token.encode()).hexdigest(),))
+            self.store.db.commit()
 
     def bootstrap(self, username, password):
         # Environment credentials seed the first administrator only. They can never
@@ -119,5 +146,6 @@ class Accounts:
                 ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,
                 role=excluded.role, orgs=excluded.orgs, active=excluded.active, updated_at=excluded.updated_at''',
                 (username, hashed or old['password_hash'], role, json.dumps(sorted(set(orgs))), int(active), time.time()))
+            self.store.db.execute('DELETE FROM dashboard_sessions WHERE username=?', (username,))
             self.store.db.commit()
         return {'username': username, 'role': role, 'orgs': sorted(set(orgs)), 'active': active}

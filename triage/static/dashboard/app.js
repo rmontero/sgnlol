@@ -119,6 +119,7 @@ async function api(path) {
     credentials: "same-origin",
     cache: "no-store",
   });
+  if (response.status === 401) window.location.replace("/dashboard/login");
   if (!response.ok)
     throw new Error(
       response.status === 401
@@ -632,3 +633,8 @@ $("user-form").addEventListener("submit", async (event) => {
 });
 resetUser();
 initialize();
+
+document.getElementById("sign-out").addEventListener("click", async () => {
+  const response = await fetch("/api/dashboard/logout", {method:"POST",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:"{}"});
+  if (response.ok) window.location.replace("/dashboard/login");
+});

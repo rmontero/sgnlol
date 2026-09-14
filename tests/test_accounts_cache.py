@@ -169,4 +169,41 @@ def test_failed_signins_are_throttled_and_health_still_works(system):
         assert client.get('/api/dashboard/me', auth=('alice','wrong')).status_code == 401
     assert client.get('/api/dashboard/me', auth=('alice','wrong')).status_code == 429
     assert client.get('/healthz').status_code == 200
-    assert client.get('/').status_code == 401  # follows redirect to authenticated dashboard
+    assert client.get('/').url.path == '/dashboard/login'
+
+
+def test_browser_session_login_logout_and_revocation(system):
+    client, store, app = system
+    assert client.get('/dashboard').url.path == '/dashboard/login'
+    assert client.get('/dashboard/login').status_code == 200
+    assert client.get('/dashboard/login/login.js').status_code == 200
+    bad = client.post('/api/dashboard/login', headers=HEADERS, json={'username':'alice','password':'wrong'})
+    assert bad.status_code == 401 and 'www-authenticate' not in bad.headers
+    assert client.post('/api/dashboard/login', json={'username':'alice','password':PASSWORD}).status_code == 403
+    assert client.post('/api/dashboard/login', headers={**HEADERS,'Origin':'https://evil.example'}, json={'username':'alice','password':PASSWORD}).status_code == 403
+    response = client.post('/api/dashboard/login', headers=HEADERS, json={'username':'alice','password':PASSWORD})
+    assert response.status_code == 200
+    assert 'HttpOnly' in response.headers['set-cookie'] and 'SameSite=strict' in response.headers['set-cookie']
+    token = client.cookies.get('sgnlol_session')
+    assert token not in str([tuple(r) for r in store.db.execute('SELECT * FROM dashboard_sessions')])
+    assert client.get('/dashboard').url.path == '/dashboard'
+    assert client.get('/api/dashboard/me').json()['username'] == 'alice'
+    assert client.get('/api/dashboard/events/event-beta').status_code == 404
+    assert client.get('/api/dashboard/users').status_code == 403
+    assert client.post('/api/dashboard/logout', headers=HEADERS, json={}).status_code == 200
+    assert app.state.accounts.session(token) is None
+    assert client.get('/api/dashboard/me').status_code == 401
+    client.post('/api/dashboard/login', headers=HEADERS, json={'username':'alice','password':PASSWORD})
+    app.state.accounts.save('alice', 'viewer', ['alpha'])
+    assert client.get('/api/dashboard/me').status_code == 401
+    client.post('/api/dashboard/login', headers=HEADERS, json={'username':'alice','password':PASSWORD})
+    store.db.execute('UPDATE dashboard_sessions SET expires_at=0')
+    store.db.commit()
+    assert client.get('/api/dashboard/me').status_code == 401
+
+
+def test_session_cookie_secure_in_production(system):
+    client, _, _ = system
+    response = client.post('https://sgn.lol/api/dashboard/login', headers=HEADERS, json={'username':'alice','password':PASSWORD})
+    assert response.status_code == 200
+    assert 'Secure' in response.headers['set-cookie']
