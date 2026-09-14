@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 
 from triage.store import Store
 
@@ -126,10 +127,20 @@ class Analytics:
                 raise ValueError("Ambiguous event identifier")
             return self._items(rows)[0] if rows else None
 
-    def deliveries(self, limit=50, offset=0) -> dict:
+    def deliveries(self, limit=50, offset=0, status=None, kind=None, days=None) -> dict:
         limit, offset = self._page(limit, offset)
         with self.store._lock:
             scope, args = self._scope("b.org_id")
+            if status:
+                scope += ' AND b.status=?'
+                args.append(status)
+            kinds = {"test": "b.id LIKE 'test:%'", "imported": "b.id LIKE 'test-receipt:%'",
+                     "scored": "b.id NOT LIKE 'test:%' AND b.id NOT LIKE 'test-receipt:%'"}
+            if kind in kinds:
+                scope += ' AND (' + kinds[kind] + ')'
+            if days is not None:
+                scope += ' AND b.due_at>=?'
+                args.append(time.time()-days*86400)
             total = self.store.db.execute("SELECT COUNT(*) FROM batches b WHERE " + scope, args).fetchone()[0]
             rows = self.store.db.execute("""
                 SELECT b.id,b.org_id,b.recipient,b.subject_key,b.status,b.due_at,
@@ -137,3 +148,14 @@ class Analytics:
                     (SELECT COUNT(*) FROM batch_events be WHERE be.batch_id=b.id) AS event_count
                 FROM batches b WHERE """ + scope + " ORDER BY b.due_at DESC,b.id DESC LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
             return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+    def source_activity(self):
+        """Last accepted event is evidence of receipt, not a provider health check."""
+        with self.store._lock:
+            scope, args = self._scope()
+            rows = self.store.db.execute("""SELECT org_id,source,
+                CASE WHEN source='github' THEN json_extract(payload,'$.repo')
+                ELSE COALESCE(json_extract(payload,'$.metadata.channel'),json_extract(payload,'$.metadata.channel_id')) END AS identity,
+                MAX(json_extract(payload,'$.received_at')) AS last_received, COUNT(*) AS event_count
+                FROM events WHERE """+scope+" GROUP BY org_id,source,identity",args).fetchall()
+            return [dict(row) for row in rows]

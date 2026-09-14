@@ -18,13 +18,14 @@
         ></a
       >
       <p class="sidebar-label">YOUR ATTENTION, PROTECTED</p>
-      <nav aria-label="Main navigation">
+      <button id="menu-toggle" class="button secondary mobile-menu" aria-expanded="false" aria-controls="main-navigation">Menu</button>
+      <nav id="main-navigation" aria-label="Main navigation">
         <button class="nav-item active" data-view="inbox" aria-current="page">
           <span aria-hidden="true">▤</span> Signal inbox</button
         ><button class="nav-item" data-view="deliveries" data-permission="deliveries:read" hidden>
           <span aria-hidden="true">↗</span> Deliveries</button
         ><button class="nav-item" data-view="routing" data-permission="routing:read" hidden>
-          <span aria-hidden="true">⌘</span> Routing
+          <span aria-hidden="true">⌘</span> Routing reference
         </button>
         <button class="nav-item" data-view="sources" data-permission="sources:manage" hidden>Sources</button>
         <button class="nav-item" data-view="users" data-permission="users:manage" hidden>Users &amp; access</button>
@@ -53,6 +54,7 @@
         <span class="read-only" id="account-label">Signing in…</span>
       </section>
       <div id="notice" role="alert" hidden></div>
+      <details id="overview-panel" class="overview-panel"><summary>Overview · all-time activity</summary>
       <section id="metrics" class="metrics" aria-label="Triage overview">
         <article class="metric">
           <p>Events received</p>
@@ -60,7 +62,7 @@
           ><span>Across connected sources</span>
         </article>
         <article class="metric">
-          <p>Model relevance</p>
+          <p>Average relevance</p>
           <strong id="metric-score">—</strong
           ><span id="metric-model-detail"
             >Verified model scores only · 0–100</span
@@ -74,9 +76,9 @@
           >
         </article>
         <article class="metric">
-          <p>Fallback decisions</p>
+          <p>Historical fallbacks</p>
           <strong id="metric-fallback">—</strong
-          ><span>Review scoring availability</span>
+          ><span>All-time count, not current service health</span>
         </article>
       </section>
       <section
@@ -97,6 +99,7 @@
           <p>Stored scoring usage; failed attempts may not be included.</p>
         </div>
       </section>
+      </details>
       <section id="inbox-view" class="view">
         <div class="section-heading">
           <h2>
@@ -160,17 +163,27 @@
         </div>
       </section>
       <section id="deliveries-view" class="view" hidden>
-        <form id="test-alert-form" class="user-form" data-permission="sources:manage" hidden>
-          <h3>Send a tracked test alert</h3>
-          <label>Organization ID<input id="test-org" required placeholder="talacha"></label>
-          <label>Configured Slack destination<input id="test-recipient" required placeholder="U02C1MHKQF9"></label>
-          <div><button id="send-test-alert" type="submit" class="button secondary">Send test alert</button> <button id="new-test-alert" type="button" class="button secondary">Start another test</button></div>
-          <p id="test-result" role="status">This sends a Slack message and records its outcome. It does not use AI credits.</p>
-        </form>
+
         <div class="section-heading">
           <h2>Notification delivery</h2>
           <p>Track the handoff from signal to recipient.</p>
         </div>
+        <p class="context-note">A history of individual attempts. Past failures do not describe current Slack health. Imported confirmations were recorded from a prior Slack response.</p>
+        <form id="delivery-filters" class="filters">
+          <label>Status<select id="delivery-status"><option value="">All statuses</option><option value="sent">Sent</option><option value="failed">Failed attempts</option><option value="unknown">Uncertain outcomes</option><option value="pending">Pending</option><option value="sending">Sending</option></select></label>
+          <label>Delivery type<select id="delivery-kind"><option value="">All types</option><option value="scored">Scored alerts</option><option value="test">Test alerts</option><option value="imported">Imported confirmations</option></select></label>
+          <label>Period<select id="delivery-days"><option value="">All time</option><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
+          <button type="submit" class="button secondary">Apply filters</button>
+        </form>
+        <details id="test-panel" class="secondary-panel" data-permission="sources:manage" hidden><summary>Send a test alert</summary>
+        <form id="test-alert-form" class="user-form">
+          <h3>Send a tracked test alert</h3>
+          <label>Organization<select id="test-org" required></select></label>
+          <label>Alert destination<select id="test-recipient" required></select></label>
+          <div><button id="send-test-alert" type="submit" class="button secondary">Send test alert</button> <button id="new-test-alert" type="button" class="button secondary">Start another test</button></div>
+          <p id="test-result" role="status">This sends a Slack message and records its outcome. It does not use AI credits.</p>
+        </form>
+        </details>
         <div id="deliveries" class="activity-list" aria-live="polite"></div>
         <div class="pagination">
           <span id="delivery-page-info"></span>
@@ -191,28 +204,10 @@
         <div id="routing" class="routing-grid" aria-live="polite"></div>
       </section>
       <section id="sources-view" class="view" hidden>
-        <div class="section-heading"><h2>Monitored sources</h2><p>Add or edit sources. Disabled sources stop new monitoring and pending alerts.</p></div>
+        <div class="section-heading"><div><h2>Monitored sources</h2><p>Monitoring settings and observed event receipt.</p></div><button id="add-source" class="button secondary">Add source</button></div>
+        <p id="source-list-feedback" role="status"></p>
         <div id="sources" class="routing-grid" aria-live="polite"></div>
-        <form id="source-form" class="user-form">
-          <h3 id="source-form-title">Add source</h3>
-          <label>Organization<select id="source-org" required></select></label>
-          <label>Source type<select id="source-type"><option value="slack">Slack channel</option><option value="github">GitHub repository</option></select></label>
-          <label>Channel ID or owner/repository<input id="source-identity" required maxlength="250" placeholder="C0C18A105S7 or rmontero/sgnlol"></label>
-          <label>Escalation score (0–100)<input id="source-threshold" type="number" min="0" max="100" step="1" placeholder="Use organization default"></label>
-          <label>Alert destinations<input id="source-recipients" maxlength="2000" placeholder="U02C1MHKQF9 or C…"><span>Comma-separated Slack user IDs for DMs or channel IDs. Blank uses the existing organization routing.</span></label>
-          <label>Users or groups to mention<input id="source-mentions" maxlength="1000" placeholder="U… or S…"><span>Comma-separated Slack user or user-group IDs. To notify a group, send the alert to a channel the group can access.</span></label>
-          <label>Include keywords<input id="source-include" maxlength="3000" placeholder="blocker, security, production"><span>Optional: match any phrase, ignoring case. Blank includes all content.</span></label>
-          <label>Exclude keywords<input id="source-exclude" maxlength="3000" placeholder="Optional phrases to skip"><span>Exclusions take priority. Keyword matches still need to meet the model score threshold.</span></label>
-          <fieldset id="source-github-events"><legend>GitHub event types</legend>
-            <label><input type="checkbox" name="github-event" value="pull_request" checked> PR updates</label>
-            <label><input type="checkbox" name="github-event" value="issue_comment" checked> Comments on PRs</label>
-            <label><input type="checkbox" name="github-event" value="pull_request_review" checked> PR reviews</label>
-            <label><input type="checkbox" name="github-event" value="pull_request_review_comment" checked> Review comments</label>
-          </fieldset>
-          <label class="checkbox-label"><input id="source-enabled" type="checkbox" checked>Monitoring enabled</label>
-          <div><button class="button secondary" id="save-source" type="submit">Save source</button> <button class="button secondary" id="new-source" type="button">Add another source</button></div>
-          <p id="source-feedback" role="status"></p>
-        </form>
+
         <p id="source-setup">Slack: invite the app to each source and destination channel. This installation receives public-channel messages. GitHub: install the webhook on each repository and enable PR, issue comment, PR review, and review comment events. Saving a source does not install provider webhooks or grant permissions. Only new events are monitored.</p>
         <p>GitHub webhook: <code>https://sgnlol-production.up.railway.app/webhooks/github</code></p>
       </section>
@@ -236,6 +231,35 @@
         visible.
       </footer>
     </main>
+    <dialog id="source-editor" aria-labelledby="source-form-title">
+        <form id="source-form" class="user-form">
+          <h3 id="source-form-title">Add source</h3>
+          <p id="source-help" class="context-note"></p>
+          <h4>What to monitor</h4>
+          <label>Organization<select id="source-org" required></select></label>
+          <label>Source type<select id="source-type"><option value="slack">Slack channel</option><option value="github">GitHub repository</option></select></label>
+          <label><span id="source-identity-label">Slack channel ID</span><input id="source-identity" required maxlength="250" placeholder="C0C18A105S7 or rmontero/sgnlol"></label>
+          <label>Display name (optional)<input id="source-label" maxlength="80" placeholder="#team-channel or repository name"></label>
+          <h4>When to escalate</h4>
+          <label>Escalation score (0–100)<input id="source-threshold" type="number" min="0" max="100" step="1" placeholder="Use organization default"></label>
+          <h4>Who to notify</h4>
+          <label>Alert destinations<input id="source-recipients" maxlength="2000" placeholder="U02C1MHKQF9 or C…"><span>Comma-separated Slack user IDs for DMs or channel IDs. Blank uses the existing organization routing.</span></label>
+          <label>Users or groups to mention<input id="source-mentions" maxlength="1000" placeholder="U… or S…"><span>Comma-separated Slack user or user-group IDs. To notify a group, send the alert to a channel the group can access.</span></label>
+          <details id="source-advanced" class="secondary-panel"><summary>Optional keyword filters</summary>
+          <label>Include keywords<input id="source-include" maxlength="3000" placeholder="blocker, security, production"><span>Optional: match any phrase, ignoring case. Blank includes all content.</span></label>
+          <label>Exclude keywords<input id="source-exclude" maxlength="3000" placeholder="Optional phrases to skip"><span>Exclusions take priority. Keyword matches still need to meet the model score threshold.</span></label>
+          </details>
+          <fieldset id="source-github-events"><legend>GitHub event types</legend>
+            <label><input type="checkbox" name="github-event" value="pull_request" checked> PR updates</label>
+            <label><input type="checkbox" name="github-event" value="issue_comment" checked> Comments on PRs</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review" checked> PR reviews</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review_comment" checked> Review comments</label>
+          </fieldset>
+          <label class="checkbox-label"><input id="source-enabled" type="checkbox" checked>Monitoring enabled</label>
+          <p id="source-feedback" role="status"></p>
+          <div class="editor-actions"><button class="button secondary" id="save-source" type="submit">Save source</button> <button class="button secondary" id="new-source" type="button">Discard draft</button> <button class="button secondary" id="close-source" type="button">Close</button></div>
+        </form>
+    </dialog>
     <dialog id="detail" aria-labelledby="detail-title">
       <div class="drawer-heading">
         <span class="eyebrow">SIGNAL DETAILS</span

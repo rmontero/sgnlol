@@ -8,6 +8,7 @@ const state = {
   generation: 0,
   me: null,
   editingUser: false,
+  dirty: new Set(),
 };
 const titles = {
   sources: ["Sources", "Choose what to monitor and when to raise an alert."],
@@ -21,7 +22,7 @@ const titles = {
     "Follow each notification from decision to destination.",
   ],
   routing: [
-    "Routing",
+    "Routing reference",
     "The sources you listen to. The people you trust to act.",
   ],
 };
@@ -358,30 +359,23 @@ function renderDeliveries(data) {
       const row = node("article", "event-row");
       row.append(node("span", "score", "↗"));
       const body = node("div", "event-main");
-      body.append(
-        node("div", "event-meta", item.org_id || "Organization"),
-        node(
-          "strong",
-          "event-title",
-          identity(item.recipient || item.destination),
-        ),
-        node(
-          "p",
-          "event-summary",
-          item.error ||
-            item.summary ||
-            (item.subject_key?.startsWith("test:") ? "Test alert · " + item.subject_key.slice(5) + (item.slack_ts ? " · Slack confirmed: " + item.slack_ts : "") : "") ||
-            [
-              item.subject_key,
-              number(item.event_count) + " events",
-              "Batch " + String(item.id || ""),
-            ]
-              .filter(Boolean)
-              .join(" · "),
-        ),
-      );
+      const imported = item.id?.startsWith("test-receipt:");
+      const test = item.id?.startsWith("test:");
+      const type = imported ? "Imported confirmation" : test ? "Test alert" : "Scored alert";
+      const summary = item.status === "sent" ? "Slack confirmed acceptance." : item.status === "unknown" ? "Outcome uncertain. Check Slack before another attempt." : item.status === "failed" ? "This attempt failed. It is not a current connection check." : "Waiting for a confirmed outcome.";
+      body.append(node("div", "event-meta", (item.org_id || "Organization") + " · " + type), node("strong", "event-title", identity(item.recipient || item.destination)), node("p", "event-summary", summary));
+      const details = node("details", "delivery-details");
+      details.append(node("summary", "", "Details and next step"));
+      details.append(node("p", "", "Attempt time: " + date(item.due_at) + " · " + number(item.attempts) + " attempt(s)"));
+      if (item.error) details.append(node("p", "", item.error));
+      if (item.slack_ts) details.append(node("p", "provider-id", "Slack receipt: " + item.slack_ts));
+      if (imported) details.append(node("p", "", "Recorded from an earlier successful Slack response; importing did not send another message."));
+      else if (!test) details.append(node("p", "", number(item.event_count) + " event(s) · " + item.subject_key));
+      if (item.status === "failed") details.append(node("p", "", "Check the destination and app permissions. A new tracked test can verify delivery; this failed attempt remains in history."));
+      details.append(node("p", "provider-id", "Record: " + item.id));
+      body.append(details);
       const status = node("div", "event-status");
-      status.append(badge(item.status));
+      status.append(badge(item.status === "failed" ? "failed attempt" : item.status));
       row.append(
         body,
         status,
@@ -498,20 +492,17 @@ async function refresh() {
   empty(container, "Loading…", "Fetching the latest stored activity.");
   try {
     const [overview, content] = await Promise.all([
-      api("overview"),
+      target === "inbox" ? api("overview") : Promise.resolve(null),
       target === "inbox"
         ? events()
         : target === "deliveries"
-          ? api(
-              "deliveries?limit=" +
-                state.limit +
-                "&offset=" +
-                state.deliveryOffset,
-            )
+          ? api(deliveryQuery())
           : api(target),
     ]);
     if (generation !== state.generation) return;
-    renderOverview(overview);
+    if (overview) renderOverview(overview);
+    if (target === "deliveries" && state.me.permissions.includes("sources:manage")) await setupTestDestinations();
+    if (generation !== state.generation) return;
     if (target === "inbox") renderEvents(content);
     else if (target === "deliveries") renderDeliveries(content);
     else if (target === "sources") renderSources(content);
@@ -536,21 +527,26 @@ async function refresh() {
     }
   }
 }
-for (const button of document.querySelectorAll("[data-view]"))
-  button.addEventListener("click", () => {
-    state.view = button.dataset.view;
-    for (const nav of document.querySelectorAll("[data-view]")) {
-      const active = nav === button;
-      nav.classList.toggle("active", active);
-      if (active) nav.setAttribute("aria-current", "page");
-      else nav.removeAttribute("aria-current");
-    }
-    for (const view of ["inbox", "deliveries", "routing", "users", "sources"])
-      $(view + "-view").hidden = view !== state.view;
-    $("page-title").textContent = titles[state.view][0];
-    $("page-description").textContent = titles[state.view][1];
-    refresh();
-  });
+function navigate(view, updateUrl = true) {
+  const button = document.querySelector('[data-view="' + view + '"]');
+  if (!button || button.hidden) view = "inbox";
+  state.view = view;
+  for (const nav of document.querySelectorAll("[data-view]")) {
+    const active = nav.dataset.view === view;
+    nav.classList.toggle("active", active);
+    if (active) nav.setAttribute("aria-current", "page"); else nav.removeAttribute("aria-current");
+  }
+  for (const name of ["inbox", "deliveries", "routing", "users", "sources"]) $(name + "-view").hidden = name !== view;
+  $("overview-panel").hidden = view !== "inbox";
+  $("page-title").textContent = titles[view][0]; $("page-description").textContent = titles[view][1];
+  document.title = titles[view][0] + " · sgnlol";
+  if (updateUrl && location.hash !== "#" + view) history.pushState(null, "", "#" + view);
+  document.querySelector(".sidebar").classList.remove("nav-open"); $("menu-toggle").setAttribute("aria-expanded", "false");
+  refresh();
+}
+for (const button of document.querySelectorAll("[data-view]")) button.addEventListener("click", () => navigate(button.dataset.view));
+window.addEventListener("hashchange", () => {const view=location.hash.slice(1); if (Object.hasOwn(titles, view) && state.me) navigate(view, false);});
+$("menu-toggle").addEventListener("click", () => {const open=document.querySelector(".sidebar").classList.toggle("nav-open");$("menu-toggle").setAttribute("aria-expanded",String(open));});
 $("filters").addEventListener("submit", (e) => {
   e.preventDefault();
   state.offset = 0;
@@ -590,12 +586,13 @@ async function initialize() {
     state.me = await api("me");
     $("account-label").textContent = state.me.username + " · " + state.me.role;
     for (const control of document.querySelectorAll("[data-permission]")) control.hidden = !state.me.permissions.includes(control.dataset.permission);
-    const selected = document.querySelector('[data-view="' + state.view + '"]');
-    if (selected?.hidden) document.querySelector('[data-view="inbox"]').click();
-    else await refresh();
+    const requested = location.hash.slice(1);
+    navigate(Object.hasOwn(titles, requested) ? requested : state.view);
+
   } catch (err) { error(err); }
 }
 function resetUser() {
+  state.dirty.delete("user-form");
   state.editingUser = false;
   $("user-form").reset(); $("user-name").readOnly = false;
   $("user-form-title").textContent = "Create user";
@@ -608,6 +605,8 @@ function renderUsers(data) {
     const edit = node("button", "button secondary", "Edit " + user.username);
     edit.type = "button";
     edit.addEventListener("click", () => {
+      if (state.dirty.has("user-form") && !window.confirm("Discard the unsaved account edits?")) return;
+      state.dirty.delete("user-form");
       state.editingUser = true; $("user-name").value = user.username; $("user-name").readOnly = true;
       $("user-password").value = ""; $("user-password").required = false;
       $("user-role").value = user.role; $("user-orgs").value = user.orgs.join(", ");
@@ -620,7 +619,7 @@ function renderUsers(data) {
   }
   api("cache").then(info => { $("cache-status").textContent = "Redis cache: " + info.state + " · " + info.ttl_seconds + "s TTL · " + info.hits + " hits / " + info.misses + " misses"; }).catch(() => { $("cache-status").textContent = "Cache status unavailable"; });
 }
-$("new-user").addEventListener("click", resetUser);
+$("new-user").addEventListener("click", () => {if (!state.dirty.has("user-form") || window.confirm("Discard the unsaved account edits?")) resetUser();});
 $("user-form").addEventListener("submit", async (event) => {
   event.preventDefault(); $("save-user").disabled = true;
   const payload = {username: $("user-name").value.trim(), role: $("user-role").value, orgs: $("user-orgs").value.split(",").map(s => s.trim()).filter(Boolean), active: $("user-active").checked};
@@ -642,55 +641,73 @@ document.getElementById("sign-out").addEventListener("click", async () => {
   if (response.ok) window.location.replace("/dashboard/login");
 });
 
-const sourceFields = ["identity", "threshold", "recipients", "mentions", "include", "exclude"];
-function sourceTypeChanged() { $("source-github-events").hidden = $("source-type").value !== "github"; }
+const sourceFields = ["label", "identity", "threshold", "recipients", "mentions", "include", "exclude"];
+function sourceTypeChanged() {
+  const github = $("source-type").value === "github";
+  $("source-github-events").hidden = !github;
+  $("source-identity-label").textContent = github ? "Repository (owner/name)" : "Slack channel ID";
+  $("source-identity").placeholder = github ? "rmontero/repository" : "C0C18A105S7";
+  $("source-help").textContent = github ? "Install the GitHub webhook on this repository first. Choose PR and comment events below. Saving settings alone does not connect GitHub." : "Invite the Slack app to this public channel. Use a channel destination for group mentions, or a user destination for a DM. Saving settings alone does not grant access.";
+}
 function resetSource() {
+  state.dirty.delete("source-form");
+  $("source-advanced").open = false;
   $("source-form").reset(); $("source-identity").readOnly = false;
   $("source-org").disabled = false; $("source-type").disabled = false;
   $("source-form-title").textContent = "Add source"; $("source-feedback").textContent = "";
   sourceTypeChanged();
 }
 function editSource(org, type, identity, rule) {
+  if (state.dirty.has("source-form")) { $("source-editor").showModal(); $("source-feedback").textContent = "An unsaved draft is open. Save or discard it before editing another source."; return; }
   resetSource(); $("source-org").value = org.id; $("source-type").value = type;
   $("source-org").disabled = true; $("source-type").disabled = true; $("source-identity").readOnly = true;
   $("source-form-title").textContent = "Edit " + identity;
-  const values = [identity, rule.threshold == null ? "" : rule.threshold * 100, (rule.recipients || []).join(", "), (rule.mentions || []).join(", "), (rule.include_keywords || []).join(", "), (rule.exclude_keywords || []).join(", ")];
+  const values = [rule.label || "", identity, rule.threshold == null ? "" : rule.threshold * 100, (rule.recipients || []).join(", "), (rule.mentions || []).join(", "), (rule.include_keywords || []).join(", "), (rule.exclude_keywords || []).join(", ")];
   sourceFields.forEach((field, i) => { $("source-" + field).value = values[i]; });
   $("source-enabled").checked = rule.enabled !== false;
   for (const box of document.querySelectorAll('[name="github-event"]')) box.checked = !rule.event_types || rule.event_types.includes(box.value);
-  sourceTypeChanged(); $("source-threshold").focus();
+  $("source-advanced").open = Boolean(rule.include_keywords?.length || rule.exclude_keywords?.length);
+  sourceTypeChanged(); $("source-editor").showModal(); $("source-threshold").focus();
 }
 function renderSources(data) {
-  state.sourceConfig = data;
+  // Keep the old edit revision with an unsaved draft so concurrent changes still conflict.
+  if (!state.dirty.has("source-form")) state.sourceConfig = data;
   const selected = $("source-org").value;
   $("source-org").replaceChildren(); $("sources").replaceChildren();
   for (const org of data.orgs) {
     const option = node("option", "", org.id + " · GitHub owner: " + org.github_org); option.value = org.id; $("source-org").append(option);
     const entries = [...org.slack_channels.map(id => ["slack", id, org.slack_rules?.[id] || {}]), ...Object.entries(org.repos).map(([id, rule]) => ["github", id, rule])];
-    for (const [type, identity, rule] of entries) {
+    for (const [type, sourceId, rule] of entries) {
       const card = node("article", "route-card");
-      const edit = node("button", "button secondary", "Edit " + identity); edit.type = "button"; edit.addEventListener("click", () => editSource(org, type, identity, rule));
-      card.append(node("h3", "", identity), node("p", "", org.id + " · " + type + " · " + (rule.enabled === false ? "Disabled" : "Enabled")), node("p", "", "Escalate at " + Math.round((rule.threshold ?? org.threshold) * 100) + "/100 → " + (rule.recipients?.join(", ") || org.recipient || "No destination")), node("p", "", "Mentions: " + (rule.mentions?.join(", ") || "None")), edit);
+      const edit = node("button", "button secondary", "Edit " + (rule.label || identity(sourceId))); edit.type = "button"; edit.addEventListener("click", () => editSource(org, type, sourceId, rule));
+      const activity = (data.activity || []).find(a => a.org_id === org.id && a.source === type && a.identity?.toLowerCase() === sourceId.toLowerCase());
+      const receipt = activity ? "Last accepted event: " + date(activity.last_received) + " · " + number(activity.event_count) + " stored" : "Awaiting first accepted event · check provider setup";
+      const targets = rule.recipients?.length && (type === "slack" || rule.override_recipients || org.type === "enterprise") ? rule.recipients : [org.recipient];
+      card.append(node("h3", "", rule.label || identity(sourceId).replace(/ \([A-Z0-9]+\)$/, "")), node("p", "source-id", sourceId), node("p", "", org.id + " · " + type + " · Monitoring " + (rule.enabled === false ? "disabled" : "enabled")), node("p", "source-activity", receipt), node("p", "", "Escalate at " + Math.round((rule.threshold ?? org.threshold) * 100) + "/100 → " + targets.filter(Boolean).map(identity).join(", ")), node("p", "", "Mentions: " + (rule.mentions?.map(identity).join(", ") || "None")), edit);
       $("sources").append(card);
     }
   }
   if (selected && data.orgs.some(o => o.id === selected)) $("source-org").value = selected;
-  $("save-source").disabled = !data.orgs.length;
-  if (!data.orgs.length) $("source-feedback").textContent = "Configure an organization before adding sources.";
+  $("save-source").disabled = !data.orgs.length; $("add-source").disabled = !data.orgs.length;
+  if (!data.orgs.length) $("source-list-feedback").textContent = "Configure an organization before adding sources.";
   sourceTypeChanged();
 }
-$("new-source").addEventListener("click", resetSource);
+$("add-source").addEventListener("click", () => {if (!state.dirty.has("source-form")) resetSource(); $("source-editor").showModal();});
+$("new-source").addEventListener("click", () => {resetSource();$("source-editor").close();$("source-list-feedback").textContent="Draft discarded.";});
+$("close-source").addEventListener("click", () => $("source-editor").close());
+$("source-editor").addEventListener("close", () => {if (state.dirty.has("source-form")) $("source-list-feedback").textContent="Unsaved draft kept. Select Add source to resume it.";});
 $("source-type").addEventListener("change", sourceTypeChanged);
 $("source-form").addEventListener("submit", async (event) => {
   event.preventDefault(); $("save-source").disabled = true;
   const list = id => $(id).value.split(",").map(v => v.trim()).filter(Boolean);
-  const rule = {enabled:$("source-enabled").checked, threshold:$("source-threshold").value === "" ? null : Number($("source-threshold").value)/100, recipients:list("source-recipients"), mentions:list("source-mentions"), include_keywords:list("source-include"), exclude_keywords:list("source-exclude")};
+  const rule = {label:$("source-label").value.trim(), enabled:$("source-enabled").checked, threshold:$("source-threshold").value === "" ? null : Number($("source-threshold").value)/100, recipients:list("source-recipients"), mentions:list("source-mentions"), include_keywords:list("source-include"), exclude_keywords:list("source-exclude")};
   if ($("source-type").value === "github") rule.event_types = [...document.querySelectorAll('[name="github-event"]:checked')].map(box => box.value);
   try {
     const response = await fetch("/api/dashboard/sources", {method:"PUT",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:JSON.stringify({revision:state.sourceConfig.revision,org_id:$("source-org").value,source:$("source-type").value,identity:$("source-identity").value.trim(),rule})});
     const data = await response.json();
     if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not save source");
-    resetSource(); renderSources(data); $("source-feedback").textContent = "Saved. Monitoring uses these settings immediately and after redeployment.";
+    const activity = state.sourceConfig?.activity || [];
+    resetSource(); renderSources({...data,activity}); $("source-editor").close(); $("source-list-feedback").textContent = "Saved. Monitoring settings apply immediately. Check the last accepted event to confirm activity.";
   } catch (err) { $("source-feedback").textContent = err.message; }
   finally { $("save-source").disabled = false; }
 });
@@ -700,13 +717,46 @@ let pendingTestId = null;
 $("test-alert-form").addEventListener("submit", async event => {
   event.preventDefault(); $("send-test-alert").disabled = true;
   pendingTestId ||= crypto.randomUUID();
+  $("test-org").disabled = true; $("test-recipient").disabled = true;
   try {
     const response = await fetch("/api/dashboard/test-alert", {method:"POST",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:JSON.stringify({request_id:pendingTestId,org_id:$("test-org").value.trim(),recipient:$("test-recipient").value.trim()})});
     if (!response.ok) throw new Error("Test request failed. Check the configured organization and destination.");
     const record = await response.json();
+    state.testFinished = true;
     $("test-result").textContent = record.status === "sent" ? "Slack confirmed delivery. The test is recorded below." : "Recorded status: " + record.status + ". Check the delivery before sending another test.";
     await refresh();
   } catch (err) { $("test-result").textContent = err.message + " Retrying this form uses the same request ID to prevent duplicate delivery."; }
-  finally { $("send-test-alert").disabled = false; }
+  finally { $("send-test-alert").disabled = Boolean(state.testFinished); }
 });
-$("new-test-alert").addEventListener("click", () => {pendingTestId=null;$("test-result").textContent="Ready for a new test alert.";});
+$("new-test-alert").addEventListener("click", () => {pendingTestId=null;state.testFinished=false;$("send-test-alert").disabled=false;$("test-org").disabled=false;$("test-recipient").disabled=false;$("test-result").textContent="Ready for a new test alert.";});
+
+function deliveryQuery() {
+  const params = new URLSearchParams({limit: state.limit, offset: state.deliveryOffset});
+  for (const key of ["status", "kind", "days"]) if ($("delivery-" + key).value) params.set(key, $("delivery-" + key).value);
+  return "deliveries?" + params;
+}
+$("delivery-filters").addEventListener("submit", e => {e.preventDefault(); state.deliveryOffset=0; refresh();});
+async function setupTestDestinations() {
+  const routing = await api("routing");
+  state.testOrgs = routing.orgs;
+  const selected = $("test-org").value;
+  $("test-org").replaceChildren();
+  for (const org of routing.orgs) {const option=node("option","",org.id);option.value=org.id;$("test-org").append(option);}
+  if (routing.orgs.some(o=>o.id===selected)) $("test-org").value=selected;
+  fillTestRecipients();
+}
+function fillTestRecipients() {
+  const selected=$("test-recipient").value;
+  const org=(state.testOrgs || []).find(o=>o.id===$("test-org").value);
+  const ids=org ? [...new Set([org.recipient,...Object.values(org.repos).flatMap(r=>r.recipients),...Object.values(org.slack_rules || {}).flatMap(r=>r.recipients)].filter(Boolean))] : [];
+  $("test-recipient").replaceChildren();
+  for (const id of ids) {const option=node("option","",identity(id));option.value=id;$("test-recipient").append(option);}
+  if (ids.includes(selected)) $("test-recipient").value=selected;
+  $("send-test-alert").disabled=!ids.length || Boolean(state.testFinished);
+}
+$("test-org").addEventListener("change",fillTestRecipients);
+for (const id of ["source-form","user-form"]) {
+  $(id).addEventListener("input",()=>state.dirty.add(id));
+  $(id).addEventListener("change",()=>state.dirty.add(id));
+}
+window.addEventListener("beforeunload",event=>{if(state.dirty.size){event.preventDefault();event.returnValue="";}});

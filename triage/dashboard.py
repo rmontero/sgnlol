@@ -215,8 +215,11 @@ def install_dashboard(app, settings):
         return read(request, load)
 
     @router.get('/api/dashboard/deliveries', dependencies=[Depends(permission('deliveries:read'))])
-    def deliveries(request: Request, limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0, le=100000)):
-        return read(request, analytics(request).deliveries, limit=limit, offset=offset)
+    def deliveries(request: Request, limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0, le=100000),
+                   status: Literal['pending','sending','sent','failed','unknown'] | None = None,
+                   kind: Literal['scored','test','imported'] | None = None,
+                   days: int | None = Query(default=None, ge=1, le=365)):
+        return read(request, analytics(request).deliveries, limit=limit, offset=offset, status=status, kind=kind, days=days)
 
     @router.get('/api/dashboard/routing', dependencies=[Depends(permission('routing:read'))])
     def routing(request: Request):
@@ -294,9 +297,9 @@ def install_dashboard(app, settings):
         return store.delivery_record(batch_id)
 
     @router.get('/api/dashboard/sources', dependencies=[Depends(permission('sources:manage'))])
-    def source_list():
+    def source_list(request: Request):
         try:
-            return sources.read()
+            return {**sources.read(), "activity": analytics(request).source_activity()}
         except (OSError, ValueError):
             raise HTTPException(503, 'Source configuration unavailable') from None
 

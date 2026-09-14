@@ -18,6 +18,7 @@ class SourceRule(BaseModel):
     recipients: list[str] = Field(default_factory=list)
     threshold: float | None = Field(default=None, ge=0, le=1)
 
+    label: str = Field(default="", max_length=80)
     enabled: bool = True
     override_recipients: bool = False
     mentions: list[str] = Field(default_factory=list, max_length=20)
