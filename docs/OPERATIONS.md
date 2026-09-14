@@ -16,7 +16,7 @@ docker compose exec triage sgnlol stats
 
 `docker compose` loads `.env` into the process. Database/config paths are explicitly overridden for container mounts. The data volume must be writable by UID 10001. Routing is mounted as a directory so atomic host edits are visible; it is read-only inside the container. Edit routing on the host, validate there with the CLI, then the next ingress/worker operation reloads it. Environment/secret changes require container recreation. Never use `docker compose down -v` on a deployment whose history you need to retain.
 
-The supplied manifest and YAML are templates, not provisioned services. No live provider credentials, registered webhooks, deployment, or live delivery verification are included. Use one Slack workspace/bot token per deployment. Organization records do not select separate provider clients.
+The supplied manifest and YAML are templates, not provisioned services. Live provider credentials, registered webhooks, and live provider delivery remain unconfigured. See RAILWAY.md for the deployed infrastructure and verification evidence. Use one Slack workspace/bot token per deployment. Organization records do not select separate provider clients.
 
 ## Slack setup
 

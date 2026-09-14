@@ -2,6 +2,8 @@
 
 GitHub–Slack relevance triage runs as one always-on Python process. Signed webhooks are normalized into a durable SQLite queue, scored with the OpenAI Agents SDK, filtered against reloadable routing thresholds, and batched into Slack notifications. There is no dashboard.
 
+Railway deployment details and remaining integration setup are in [RAILWAY.md](docs/RAILWAY.md).
+
 ## Run locally
 
 Use Python 3.11 or newer. The lock file pins the complete development and runtime environment.
