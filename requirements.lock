@@ -53,3 +53,5 @@ uvicorn==0.52.4
 uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.1.1
+
+redis==6.4.0

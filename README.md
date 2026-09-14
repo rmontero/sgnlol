@@ -1,3 +1,11 @@
+# sgnlol relevance triage
+
+The Railway service runs `triage.app:app`: signed GitHub/Slack ingestion, durable scoring and delivery, and an authenticated operator dashboard at `/dashboard`.
+
+See [Dashboard guide](docs/DASHBOARD.md), [Railway deployment](docs/RAILWAY.md), and [Operations](docs/OPERATIONS.md). The Slack Bolt starter below remains available separately through `app.py`.
+
+---
+
 # Bolt for Python Template App
 
 This is a generic Bolt for Python template app used to build out Slack apps.

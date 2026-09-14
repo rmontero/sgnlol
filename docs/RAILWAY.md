@@ -5,8 +5,8 @@ Service: `e935d646-ba05-41a3-9a60-1b85db9d263d`
 Environment: `production` (`0dd2f9a5-5a78-4e79-9684-493de1a5f288`)
 Volume: `sgnlol-volume` (`9f66c446-5d0f-48d9-9531-12e5fc18ca78`), mounted at `/app/data`
 
-Public URL: https://sgnlol-production.up.railway.app
-Dashboard: https://railway.com/project/d7b1b56f-39f2-4d24-807a-5592f092cec0/service/e935d646-ba05-41a3-9a60-1b85db9d263d?environmentId=0dd2f9a5-5a78-4e79-9684-493de1a5f288
+Public URL: https://sgn.lol (also https://sgnlol-production.up.railway.app)
+Railway console: https://railway.com/project/d7b1b56f-39f2-4d24-807a-5592f092cec0/service/e935d646-ba05-41a3-9a60-1b85db9d263d?environmentId=0dd2f9a5-5a78-4e79-9684-493de1a5f288
 
 ## Runtime
 
@@ -16,17 +16,23 @@ The start command is `python -m triage.railway_start`. Railway mounts volumes as
 
 `INITIALIZE_EMPTY_CONFIG=1` is only needed for the initial empty volume. It creates `orgs: []` if the routing file does not exist and never overwrites existing routing. It is now set to `0` after initial setup. The default application startup remains strict: missing or invalid routing stops startup.
 
-## Complete integration setup
+## Integration setup
 
-This deployment starts with no authorized organizations and no provider credentials. Configure the following Railway service variables privately: `GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_BOT_USER_ID`, and `OPENAI_API_KEY`. Use the dashboard or `railway variable set KEY --stdin --service e935d646-ba05-41a3-9a60-1b85db9d263d` to avoid secrets in shell history.
+The initial deployment used an empty allowlist. Provider credentials were subsequently configured and checked; an empty allowlist still ignores source events. Configure or maintain these Railway service variables privately: `GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_BOT_USER_ID`, and `OPENAI_API_KEY`. Use the dashboard or `railway variable set KEY --stdin --service e935d646-ba05-41a3-9a60-1b85db9d263d` to avoid secrets in shell history.
 
-Edit `/app/data/orgs.yaml` with actual organization, repository, Slack workspace/channel, recipient, and threshold values. Follow `config/orgs.example.yaml`. It reloads without a redeploy. Validate remotely with:
+For the new routing support, set `ROUTING_CONFIG_YAML` to the complete YAML document following `config/orgs.example.yaml`. At startup the launcher validates and atomically writes it to `/app/data/orgs.yaml`. Invalid overrides stop startup without replacing the previous file. The environment value is authoritative on every startup; removing it preserves the persisted file. Direct file edits reload without a redeploy, but a remaining environment override replaces them on the next startup, including edits made with `sgnlol set-threshold`.
+
+The authorized source is `#ai-tinkerers` (`C0C18A105S7`) in workspace `T02CGKDRDV1`, with flags sent to `@rob` (`U02C1MHKQF9`). The repository is `rmontero/sgnlol` and the initial threshold is `0.7`. Verify the deployed routing view matches these values before testing. Older ignored messages are not backfilled.
+
+`DASHBOARD_PASSWORD` and `DASHBOARD_USERNAME` bootstrap the first persistent admin on an empty accounts table. Manage subsequent accounts through **Users & access**. See [DASHBOARD.md](DASHBOARD.md) for roles, organization isolation, Redis configuration, and SQLite backups. Public port 80 redirects to HTTPS; Railway forwards HTTPS to the non-root app on internal port 8000. Redis service `02308af4-09a6-4105-91a2-02c6d9c982db` is private, referenced by the app via `REDIS_URL=${{Redis.REDIS_URL}}`.
+
+Validate remotely when SSH access is available:
 
 ```sh
 railway ssh --service e935d646-ba05-41a3-9a60-1b85db9d263d -- sgnlol validate-config
 ```
 
-Register GitHub at `/webhooks/github` and Slack Events API at `/webhooks/slack` under the public URL. Until credentials and routing are configured, unsigned webhook requests receive 401 and no provider calls occur.
+Register GitHub at `/webhooks/github` and Slack Events API at `/webhooks/slack` under the public URL. Slack Socket Mode must be disabled, `message.channels` subscribed, and the app invited to the allowed source channel. Unsigned webhook requests are rejected with 401. A signed request returning 200 may still be ignored if unsupported, outside the allowlist, or duplicated; inspect queue records and delivery state to verify the full flow.
 
 ## Deploy subsequent changes
 
@@ -37,14 +43,22 @@ railway deployment list --project d7b1b56f-39f2-4d24-807a-5592f092cec0 --environ
 
 Verify the exact returned deployment ID reaches SUCCESS and the public health endpoint responds. Do not remove the volume. Backups and uncertain-send reconciliation remain described in OPERATIONS.md.
 
-## Verification
+## Initial deployment history
 
-Initial application deployment `04f045c8-5dab-41e2-bea2-b7724b68bc7d` reached SUCCESS. The HTTPS `/healthz` endpoint returned 200 and both webhook endpoints rejected unsigned requests with 401. The full local suite passes 122 tests, including volume initialization, preserving existing routing, and privilege-drop behavior.
+These observations describe the initial rollout, not the current routing or dashboard release.
 
-Remote SSH inspection was unavailable because the Railway account has no registered SSH key. No key was added. Application credentials and source routing remain unconfigured; no live GitHub-to-Slack or model calls have been exercised.
+Initial application deployment `04f045c8-5dab-41e2-bea2-b7724b68bc7d` reached SUCCESS. The HTTPS `/healthz` endpoint returned 200 and both webhook endpoints rejected unsigned requests with 401. The then-current local suite passed 122 tests, including volume initialization, preserving existing routing, and privilege-drop behavior.
 
-Final deployment `48f15844-f5e3-4d15-b9de-dd12f73a656a` reached SUCCESS with `INITIALIZE_EMPTY_CONFIG=0`. Its public health returned 200 and unsigned webhook requests returned 401 again. Successful startup with initialization disabled confirms the routing file persisted across the redeploy. The volume mount was read back as `/app/data`.
+Remote SSH inspection was unavailable because the Railway account has no registered SSH key. No key was added. At that stage, application credentials and source routing were unconfigured, and no live GitHub-to-Slack or model calls had been exercised.
+
+The subsequent initial-setup deployment `48f15844-f5e3-4d15-b9de-dd12f73a656a` reached SUCCESS with `INITIALIZE_EMPTY_CONFIG=0`. Its public health returned 200 and unsigned webhook requests returned 401 again. Successful startup with initialization disabled confirms the routing file persisted across the redeploy. The volume mount was read back as `/app/data`.
 
 ## OpenAI event receiver
 
 `POST /webhooks/openai` receives signed OpenAI project events. Set `OPENAI_WEBHOOK_SECRET` to the secret OpenAI provides when registering the endpoint. See [OPENAI_WEBHOOK.md](OPENAI_WEBHOOK.md) for setup and receipt inspection. This is independent of the API key used for relevance scoring.
+
+## Dashboard release (2026-09-14)
+
+Deployment `4384061b-8be2-47f5-afbe-43915778ac4f` reached SUCCESS from code commit `28449be`. HTTPS health returned 200, unauthenticated dashboard/API requests returned 401 with no-store, and authenticated dashboard, overview and routing reads returned 200. The deployed routing matches #ai-tinkerers and @rob as documented in DASHBOARD.md.
+
+Initial live tests exposed exhausted OpenAI credits and a disabled Slack Messages tab; both failures were visible as fallback/failed records, never counted as successful model relevance. The Messages tab was enabled through the Slack CLI while preserving HTTP event subscriptions and existing scopes. Updated safe provider diagnostics are included in the follow-up release.

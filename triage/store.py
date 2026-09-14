@@ -231,6 +231,26 @@ class Store:
                 )
             return result
 
+    def begin_test_delivery(self, batch_id, org_id, recipient, actor):
+        with self._transaction():
+            cursor = self.db.execute("""INSERT OR IGNORE INTO batches
+                (id,org_id,recipient,subject_key,status,due_at,lease_until,attempts)
+                VALUES(?,?,?,?,'sending',?,?,1)""",
+                (batch_id, org_id, recipient, 'test:requested by '+actor, time.time(), time.time()+120))
+            return cursor.rowcount == 1
+
+    def import_test_receipt(self, batch_id, org_id, recipient, channel, ts, actor):
+        with self._transaction():
+            self.db.execute("""INSERT OR IGNORE INTO batches
+                (id,org_id,recipient,subject_key,status,due_at,slack_ts,attempts)
+                VALUES(?,?,?,?,'sent',?,?,1)""",
+                (batch_id, org_id, recipient, 'test:imported Slack confirmation '+channel+' by '+actor, float(ts), ts))
+
+    def delivery_record(self, batch_id):
+        with self._lock:
+            row = self.db.execute('SELECT * FROM batches WHERE id=?', (batch_id,)).fetchone()
+            return dict(row) if row else None
+
     def mark_sent(self, batch_id: str, ts: str) -> None:
         with self._transaction():
             self.db.execute(

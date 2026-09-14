@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17241e" />
+    <title>sgnlol · Signal inbox</title>
+    <link rel="stylesheet" href="/dashboard/assets/style.css" />
+    <script src="/dashboard/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <aside class="sidebar">
+      <a class="brand" href="/dashboard" aria-label="sgnlol dashboard"
+        ><span class="brand-icon" aria-hidden="true">≋</span>sgnlol<span
+          class="brand-dot"
+          >.</span
+        ></a
+      >
+      <p class="sidebar-label">YOUR ATTENTION, PROTECTED</p>
+      <button id="menu-toggle" class="button secondary mobile-menu" aria-expanded="false" aria-controls="main-navigation">Menu</button>
+      <nav id="main-navigation" aria-label="Main navigation">
+        <button class="nav-item active" data-view="inbox" aria-current="page">
+          <span aria-hidden="true">▤</span> Signal inbox</button
+        ><button class="nav-item" data-view="deliveries" data-permission="deliveries:read" hidden>
+          <span aria-hidden="true">↗</span> Deliveries</button
+        ><button class="nav-item" data-view="routing" data-permission="routing:read" hidden>
+          <span aria-hidden="true">⌘</span> Routing reference
+        </button>
+        <button class="nav-item" data-view="sources" data-permission="sources:manage" hidden>Sources</button>
+        <button class="nav-item" data-view="users" data-permission="users:manage" hidden>Users &amp; access</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="status-dot"></span>GitHub + Slack
+        <p>Less noise.<br />More of what matters.</p>
+      </div>
+    </aside>
+    <main id="main">
+      <header class="topbar">
+        <span class="eyebrow">WORKSPACE / TRIAGE</span>
+        <div class="refresh-group">
+          <button id="sign-out" class="button secondary">Sign out</button><span id="updated">Not refreshed yet</span
+          ><button id="refresh" class="button secondary">↻ Refresh</button>
+        </div>
+      </header>
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow accent">THE RIGHT THINGS, FIRST</p>
+          <h1 id="page-title">Signal inbox</h1>
+          <p id="page-description">
+            Every event, ranked. Know what deserves your attention.
+          </p>
+        </div>
+        <span class="read-only" id="account-label">Signing in…</span>
+      </section>
+      <div id="notice" role="alert" hidden></div>
+      <details id="overview-panel" class="overview-panel"><summary>Overview · all-time activity</summary>
+      <section id="metrics" class="metrics" aria-label="Triage overview">
+        <article class="metric">
+          <p>Events received</p>
+          <strong id="metric-total">—</strong
+          ><span>Across connected sources</span>
+        </article>
+        <article class="metric">
+          <p>Average relevance</p>
+          <strong id="metric-score">—</strong
+          ><span id="metric-model-detail"
+            >Verified model scores only · 0–100</span
+          >
+        </article>
+        <article class="metric">
+          <p>Not forwarded</p>
+          <strong id="metric-filtered">—</strong
+          ><span id="metric-filtered-detail"
+            >Processed events filtered by policy</span
+          >
+        </article>
+        <article class="metric">
+          <p>Historical fallbacks</p>
+          <strong id="metric-fallback">—</strong
+          ><span>All-time count, not current service health</span>
+        </article>
+      </section>
+      <section
+        class="scoring-overview"
+        aria-label="Scoring distribution and token usage"
+      >
+        <div>
+          <h2>Model relevance distribution</h2>
+          <div id="score-distribution" class="score-distribution"></div>
+          <p>
+            Verified model scores only. Fallback and unknown provenance are
+            excluded.
+          </p>
+        </div>
+        <div>
+          <h2>Recorded token usage</h2>
+          <strong id="token-usage">—</strong>
+          <p>Stored scoring usage; failed attempts may not be included.</p>
+        </div>
+      </section>
+      </details>
+      <section id="inbox-view" class="view">
+        <div class="section-heading">
+          <h2>
+            Incoming activity <span id="event-count" class="count">—</span>
+          </h2>
+          <div class="legend">
+            <span class="status-dot"></span>Model scores 0–100 · F = fallback ·
+            ? = unknown provenance
+          </div>
+        </div>
+        <form id="filters" class="filters" role="search">
+          <label class="search-label"
+            ><span class="sr-only">Search events</span
+            ><input
+              type="search"
+              id="search"
+              maxlength="200"
+              placeholder="Search messages, repositories, actors…" /></label
+          ><label
+            ><span>Source</span
+            ><select id="source">
+              <option value="">All sources</option>
+              <option value="github">GitHub</option>
+              <option value="slack">Slack</option>
+            </select></label
+          ><label
+            ><span>Status</span
+            ><select id="status">
+              <option value="">All statuses</option>
+              <option value="queued">Queued</option>
+              <option value="processing">Processing</option>
+              <option value="completed">Completed</option>
+              <option value="filtered">Filtered</option>
+              <option value="dead_letter">Dead letter</option>
+            </select></label
+          ><label
+            ><span>Min. score</span
+            ><select id="min-score">
+              <option value="">Any score</option>
+              <option value="0.25">25+</option>
+              <option value="0.5">50+</option>
+              <option value="0.75">75+</option>
+              <option value="0.9">90+</option>
+            </select></label
+          ><label
+            ><span>Sort</span
+            ><select id="sort">
+              <option value="newest">Newest first</option>
+              <option value="score">Highest score</option>
+            </select></label
+          ><button class="button secondary" type="submit">Apply</button>
+        </form>
+        <div id="events" class="activity-list" aria-live="polite"></div>
+        <div id="event-pagination" class="pagination">
+          <span id="page-info"></span>
+          <div>
+            <button id="previous" class="button secondary" disabled>
+              ← Previous</button
+            ><button id="next" class="button secondary" disabled>Next →</button>
+          </div>
+        </div>
+      </section>
+      <section id="deliveries-view" class="view" hidden>
+
+        <div class="section-heading">
+          <h2>Notification delivery</h2>
+          <p>Track the handoff from signal to recipient.</p>
+        </div>
+        <p class="context-note">A history of individual attempts. Past failures do not describe current Slack health. Imported confirmations were recorded from a prior Slack response.</p>
+        <form id="delivery-filters" class="filters">
+          <label>Status<select id="delivery-status"><option value="">All statuses</option><option value="sent">Sent</option><option value="failed">Failed attempts</option><option value="unknown">Uncertain outcomes</option><option value="pending">Pending</option><option value="sending">Sending</option></select></label>
+          <label>Delivery type<select id="delivery-kind"><option value="">All types</option><option value="scored">Scored alerts</option><option value="test">Test alerts</option><option value="imported">Imported confirmations</option></select></label>
+          <label>Period<select id="delivery-days"><option value="">All time</option><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
+          <button type="submit" class="button secondary">Apply filters</button>
+        </form>
+        <details id="test-panel" class="secondary-panel" data-permission="sources:manage" hidden><summary>Send a test alert</summary>
+        <form id="test-alert-form" class="user-form">
+          <h3>Send a tracked test alert</h3>
+          <label>Organization<select id="test-org" required></select></label>
+          <label>Alert destination<select id="test-recipient" required></select></label>
+          <div><button id="send-test-alert" type="submit" class="button secondary">Send test alert</button> <button id="new-test-alert" type="button" class="button secondary">Start another test</button></div>
+          <p id="test-result" role="status">This sends a Slack message and records its outcome. It does not use AI credits.</p>
+        </form>
+        </details>
+        <div id="deliveries" class="activity-list" aria-live="polite"></div>
+        <div class="pagination">
+          <span id="delivery-page-info"></span>
+          <div>
+            <button id="delivery-previous" class="button secondary" disabled>
+              ← Previous</button
+            ><button id="delivery-next" class="button secondary" disabled>
+              Next →
+            </button>
+          </div>
+        </div>
+      </section>
+      <section id="routing-view" class="view" hidden>
+        <div class="section-heading">
+          <h2>Connected routing</h2>
+          <p>Configured sources, thresholds, and flag recipients.</p>
+        </div>
+        <div id="routing" class="routing-grid" aria-live="polite"></div>
+      </section>
+      <section id="sources-view" class="view" hidden>
+        <div class="section-heading"><div><h2>Monitored sources</h2><p>Monitoring settings and observed event receipt.</p></div><button id="add-source" class="button secondary">Add source</button></div>
+        <p id="source-list-feedback" role="status"></p>
+        <div id="sources" class="routing-grid" aria-live="polite"></div>
+
+        <p id="source-setup">Slack: invite the app to each source and destination channel. This installation receives public-channel messages. GitHub: install the webhook on each repository and enable PR, issue comment, PR review, and review comment events. Saving a source does not install provider webhooks or grant permissions. Only new events are monitored.</p>
+        <p>GitHub webhook: <code>https://sgnlol-production.up.railway.app/webhooks/github</code></p>
+      </section>
+      <section id="users-view" class="view" hidden>
+        <div class="section-heading"><h2>Users &amp; access</h2><p>Admins manage accounts. Analysts inspect deliveries and routing. Viewers read scored events.</p></div>
+        <div id="users" class="routing-grid" aria-live="polite"></div>
+        <form id="user-form" class="user-form">
+          <h3 id="user-form-title">Create user</h3>
+          <label>Username<input id="user-name" required maxlength="64" autocomplete="off" pattern="[a-zA-Z0-9_.-]+"></label>
+          <label>Password<input id="user-password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" placeholder="At least 12 characters"></label>
+          <label>Role<select id="user-role"><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Admin</option></select></label>
+          <label>Organization IDs<input id="user-orgs" placeholder="talacha" maxlength="2000"><span>Comma separated. Required for viewers and analysts. Admins can access all organizations.</span></label>
+          <label class="checkbox-label"><input id="user-active" type="checkbox" checked>Account enabled</label>
+          <div><button class="button secondary" id="save-user" type="submit">Save user</button> <button class="button secondary" id="new-user" type="button">New user</button></div>
+          <p id="user-feedback" role="status"></p>
+        </form>
+        <p id="cache-status"></p>
+      </section>
+      <footer>
+        sgnlol <span>•</span> Relevance is a decision. Keep the reasoning
+        visible.
+      </footer>
+    </main>
+    <dialog id="source-editor" aria-labelledby="source-form-title">
+        <form id="source-form" class="user-form">
+          <h3 id="source-form-title">Add source</h3>
+          <p id="source-help" class="context-note"></p>
+          <h4>What to monitor</h4>
+          <label>Organization<select id="source-org" required></select></label>
+          <label>Source type<select id="source-type"><option value="slack">Slack channel</option><option value="github">GitHub repository</option></select></label>
+          <label><span id="source-identity-label">Slack channel ID</span><input id="source-identity" required maxlength="250" placeholder="C0C18A105S7 or rmontero/sgnlol"></label>
+          <label>Display name (optional)<input id="source-label" maxlength="80" placeholder="#team-channel or repository name"></label>
+          <h4>When to escalate</h4>
+          <label>Escalation score (0–100)<input id="source-threshold" type="number" min="0" max="100" step="1" placeholder="Use organization default"></label>
+          <h4>Who to notify</h4>
+          <label>Alert destinations<input id="source-recipients" maxlength="2000" placeholder="U02C1MHKQF9 or C…"><span>Comma-separated Slack user IDs for DMs or channel IDs. Blank uses the existing organization routing.</span></label>
+          <label>Users or groups to mention<input id="source-mentions" maxlength="1000" placeholder="U… or S…"><span>Comma-separated Slack user or user-group IDs. To notify a group, send the alert to a channel the group can access.</span></label>
+          <details id="source-advanced" class="secondary-panel"><summary>Optional keyword filters</summary>
+          <label>Include keywords<input id="source-include" maxlength="3000" placeholder="blocker, security, production"><span>Optional: match any phrase, ignoring case. Blank includes all content.</span></label>
+          <label>Exclude keywords<input id="source-exclude" maxlength="3000" placeholder="Optional phrases to skip"><span>Exclusions take priority. Keyword matches still need to meet the model score threshold.</span></label>
+          </details>
+          <fieldset id="source-github-events"><legend>GitHub event types</legend>
+            <label><input type="checkbox" name="github-event" value="pull_request" checked> PR updates</label>
+            <label><input type="checkbox" name="github-event" value="issue_comment" checked> Comments on PRs</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review" checked> PR reviews</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review_comment" checked> Review comments</label>
+          </fieldset>
+          <label class="checkbox-label"><input id="source-enabled" type="checkbox" checked>Monitoring enabled</label>
+          <p id="source-feedback" role="status"></p>
+          <div class="editor-actions"><button class="button secondary" id="save-source" type="submit">Save source</button> <button class="button secondary" id="new-source" type="button">Discard draft</button> <button class="button secondary" id="close-source" type="button">Close</button></div>
+        </form>
+    </dialog>
+    <dialog id="detail" aria-labelledby="detail-title">
+      <div class="drawer-heading">
+        <span class="eyebrow">SIGNAL DETAILS</span
+        ><button
+          id="close-detail"
+          class="icon-button"
+          aria-label="Close event details"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detail-content"></div>
+    </dialog>
+  </body>
+</html>
