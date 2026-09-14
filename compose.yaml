@@ -1,0 +1,23 @@
+services:
+  triage:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/triage.sqlite3
+      CONFIG_PATH: /app/config/orgs.yaml
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - triage-data:/app/data
+      - ./config:/app/config:ro
+    init: true
+    stop_grace_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      replicas: 1
+volumes:
+  triage-data:

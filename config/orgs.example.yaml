@@ -1,0 +1,16 @@
+# Replace these examples with your own identities. One Slack workspace per deployment.
+orgs:
+  - id: example
+    github_org: example-org
+    slack_team_id: T_REPLACE_ME
+    type: startup
+    recipient: D_FOUNDER_DM_REPLACE_ME
+    threshold: 0.7
+    slack_channels:
+      - C_SOURCE_REPLACE_ME
+    repos:
+      example-org/example-repo:
+        recipients: []
+        threshold: 0.7
+# Enterprise alternative: type: enterprise, populate repository recipients for
+# GitHub, and keep an organization recipient if Slack sources should be delivered.
