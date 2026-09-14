@@ -227,6 +227,72 @@ def install_dashboard(app, settings):
         scope = request.state.principal.scope
         return {'orgs': [org.model_dump() for org in config.orgs if scope is None or org.id in scope]}
 
+    def test_destination(data):
+        import re
+        org_id, recipient = data.get('org_id'), data.get('recipient')
+        if not isinstance(recipient, str) or not re.fullmatch(r'[UWCGD][A-Z0-9]{2,30}', recipient):
+            raise HTTPException(400, 'A Slack user or channel ID is required')
+        org = next((o for o in load_config(settings.config_path).orgs if o.id == org_id), None)
+        if org is None:
+            raise HTTPException(400, 'Unknown organization')
+        allowed = {org.recipient}
+        for rule in [*org.repos.values(), *org.slack_rules.values()]:
+            allowed.update(rule.recipients)
+        if recipient not in allowed:
+            raise HTTPException(400, 'Choose a configured alert destination')
+        return org_id, recipient
+
+    @router.post('/api/dashboard/test-alert', dependencies=[Depends(permission('sources:manage'))])
+    async def test_alert(request: Request):
+        import uuid
+        from .delivery import SlackDelivery, DeliveryError
+        data = await verified_json(request)
+        org_id, recipient = test_destination(data)
+        try:
+            request_id = str(uuid.UUID(data.get('request_id', '')))
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(400, 'A unique request ID is required') from None
+        batch_id = 'test:' + request_id
+        store = request.app.state.store
+        if not store.begin_test_delivery(batch_id, org_id, recipient, request.state.principal.username):
+            record = store.delivery_record(batch_id)
+            if record['org_id'] != org_id or record['recipient'] != recipient:
+                raise HTTPException(409, 'Request ID already used for a different destination')
+            return record
+        sender = SlackDelivery(settings)
+        try:
+            ts = await sender.send_test(recipient)
+            store.mark_sent(batch_id, ts)
+        except DeliveryError as exc:
+            detail = 'Test alert outcome uncertain; reconcile before retry' if exc.uncertain else 'Slack rejected test alert'
+            if exc.code:
+                detail += ' (' + exc.code + ')'
+            if exc.uncertain:
+                store.unknown_batch(batch_id, detail)
+            else:
+                store.fail_batch(batch_id, detail)
+        except Exception:
+            store.unknown_batch(batch_id, 'Test alert outcome uncertain; reconcile before retry')
+        finally:
+            await sender.close()
+        return store.delivery_record(batch_id)
+
+    @router.post('/api/dashboard/test-alert/receipt', dependencies=[Depends(permission('sources:manage'))])
+    async def test_receipt(request: Request):
+        import hashlib
+        import re
+        data = await verified_json(request)
+        org_id, recipient = test_destination(data)
+        ts, channel = data.get('slack_ts'), data.get('channel')
+        if not isinstance(ts, str) or not re.fullmatch(r'[0-9]{10}\.[0-9]{6}', ts) or float(ts) > time.time()+300:
+            raise HTTPException(400, 'A valid Slack confirmation timestamp is required')
+        if not isinstance(channel, str) or not re.fullmatch(r'[DCG][A-Z0-9]{2,30}', channel):
+            raise HTTPException(400, 'A Slack conversation ID is required')
+        batch_id = 'test-receipt:' + hashlib.sha256(f'{org_id}:{recipient}:{channel}:{ts}'.encode()).hexdigest()
+        store = request.app.state.store
+        store.import_test_receipt(batch_id, org_id, recipient, channel, ts, request.state.principal.username)
+        return store.delivery_record(batch_id)
+
     @router.get('/api/dashboard/sources', dependencies=[Depends(permission('sources:manage'))])
     def source_list():
         try:

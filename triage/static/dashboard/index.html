@@ -160,6 +160,13 @@
         </div>
       </section>
       <section id="deliveries-view" class="view" hidden>
+        <form id="test-alert-form" class="user-form" data-permission="sources:manage" hidden>
+          <h3>Send a tracked test alert</h3>
+          <label>Organization ID<input id="test-org" required placeholder="talacha"></label>
+          <label>Configured Slack destination<input id="test-recipient" required placeholder="U02C1MHKQF9"></label>
+          <div><button id="send-test-alert" type="submit" class="button secondary">Send test alert</button> <button id="new-test-alert" type="button" class="button secondary">Start another test</button></div>
+          <p id="test-result" role="status">This sends a Slack message and records its outcome. It does not use AI credits.</p>
+        </form>
         <div class="section-heading">
           <h2>Notification delivery</h2>
           <p>Track the handoff from signal to recipient.</p>

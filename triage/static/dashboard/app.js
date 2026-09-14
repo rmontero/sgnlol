@@ -350,7 +350,7 @@ function renderDeliveries(data) {
     empty(
       $("deliveries"),
       "No deliveries recorded",
-      "Notifications appear here when scored events meet a configured routing threshold.",
+      "Scored-event alerts and tracked test alerts appear here.",
     );
   else {
     $("deliveries").replaceChildren();
@@ -370,6 +370,7 @@ function renderDeliveries(data) {
           "event-summary",
           item.error ||
             item.summary ||
+            (item.subject_key?.startsWith("test:") ? "Test alert · " + item.subject_key.slice(5) + (item.slack_ts ? " · Slack confirmed: " + item.slack_ts : "") : "") ||
             [
               item.subject_key,
               number(item.event_count) + " events",
@@ -694,3 +695,18 @@ $("source-form").addEventListener("submit", async (event) => {
   finally { $("save-source").disabled = false; }
 });
 sourceTypeChanged();
+
+let pendingTestId = null;
+$("test-alert-form").addEventListener("submit", async event => {
+  event.preventDefault(); $("send-test-alert").disabled = true;
+  pendingTestId ||= crypto.randomUUID();
+  try {
+    const response = await fetch("/api/dashboard/test-alert", {method:"POST",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:JSON.stringify({request_id:pendingTestId,org_id:$("test-org").value.trim(),recipient:$("test-recipient").value.trim()})});
+    if (!response.ok) throw new Error("Test request failed. Check the configured organization and destination.");
+    const record = await response.json();
+    $("test-result").textContent = record.status === "sent" ? "Slack confirmed delivery. The test is recorded below." : "Recorded status: " + record.status + ". Check the delivery before sending another test.";
+    await refresh();
+  } catch (err) { $("test-result").textContent = err.message + " Retrying this form uses the same request ID to prevent duplicate delivery."; }
+  finally { $("send-test-alert").disabled = false; }
+});
+$("new-test-alert").addEventListener("click", () => {pendingTestId=null;$("test-result").textContent="Ready for a new test alert.";});

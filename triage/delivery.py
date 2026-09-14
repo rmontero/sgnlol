@@ -112,7 +112,16 @@ class SlackDelivery:
     async def send(self, batch: dict) -> str:
         if not self.token:
             raise DeliveryError("SLACK_BOT_TOKEN is not configured")
-        payload = _payload(batch)
+        return await self._send_payload(_payload(batch))
+
+    async def send_test(self, recipient):
+        return await self._send_payload({'channel': recipient,
+            'text': 'sgnlol test alert — requested by an administrator. No action is required.',
+            'unfurl_links': False, 'unfurl_media': False, 'parse': 'none'})
+
+    async def _send_payload(self, payload):
+        if not self.token:
+            raise DeliveryError("SLACK_BOT_TOKEN is not configured")
         try:
             response = await self.client.post(
                 "https://slack.com/api/chat.postMessage",
