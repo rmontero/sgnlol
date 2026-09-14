@@ -787,3 +787,11 @@ dialog::backdrop {
 footer {
   color: #626f60;
 }
+
+[hidden] { display: none !important; }
+.user-form { margin-top: 28px; padding: 24px; background: white; border: 1px solid #dde2d7; border-radius: 10px; display: grid; gap: 16px; max-width: 680px; }
+.user-form label { display: grid; gap: 6px; font-size: 14px; }
+.user-form input, .user-form select { width: 100%; padding: 10px; border: 1px solid #c9d1c3; border-radius: 5px; font: inherit; }
+.user-form label span { color: #58634f; font-size: 12px; }
+.user-form .checkbox-label { display: flex; align-items: center; }
+.user-form input[type=checkbox] { width: auto; }

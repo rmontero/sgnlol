@@ -6,8 +6,11 @@ const state = {
   deliveryOffset: 0,
   limit: 25,
   generation: 0,
+  me: null,
+  editingUser: false,
 };
 const titles = {
+  users: ["Users & access", "Manage who can see each organization."],
   inbox: [
     "Signal inbox",
     "Every event, ranked. Know what deserves your attention.",
@@ -240,7 +243,7 @@ function detail(item) {
     );
   content.append(node("h3", "", "Delivery history"));
   if (!item.deliveries?.length)
-    content.append(node("p", "", "No delivery recorded for this event."));
+    content.append(node("p", "", state.me.permissions.includes("deliveries:read") ? "No delivery recorded for this event." : "Delivery details require an analyst or admin role."));
   else
     for (const delivery of item.deliveries) {
       const row = node("div", "detail-delivery");
@@ -502,13 +505,14 @@ async function refresh() {
                 "&offset=" +
                 state.deliveryOffset,
             )
-          : api("routing"),
+          : api(target),
     ]);
     if (generation !== state.generation) return;
     renderOverview(overview);
     if (target === "inbox") renderEvents(content);
     else if (target === "deliveries") renderDeliveries(content);
-    else renderRouting(content);
+    else if (target === "routing") renderRouting(content);
+    else renderUsers(content);
     $("updated").textContent =
       "Updated " +
       new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -537,7 +541,7 @@ for (const button of document.querySelectorAll("[data-view]"))
       if (active) nav.setAttribute("aria-current", "page");
       else nav.removeAttribute("aria-current");
     }
-    for (const view of ["inbox", "deliveries", "routing"])
+    for (const view of ["inbox", "deliveries", "routing", "users"])
       $(view + "-view").hidden = view !== state.view;
     $("page-title").textContent = titles[state.view][0];
     $("page-description").textContent = titles[state.view][1];
@@ -577,4 +581,54 @@ $("detail").addEventListener("click", (e) => {
   )
     $("detail").close();
 });
-refresh();
+async function initialize() {
+  try {
+    state.me = await api("me");
+    $("account-label").textContent = state.me.username + " · " + state.me.role;
+    for (const control of document.querySelectorAll("[data-permission]")) control.hidden = !state.me.permissions.includes(control.dataset.permission);
+    const selected = document.querySelector('[data-view="' + state.view + '"]');
+    if (selected?.hidden) document.querySelector('[data-view="inbox"]').click();
+    else await refresh();
+  } catch (err) { error(err); }
+}
+function resetUser() {
+  state.editingUser = false;
+  $("user-form").reset(); $("user-name").readOnly = false;
+  $("user-form-title").textContent = "Create user";
+  $("user-password").required = true; $("user-feedback").textContent = "";
+}
+function renderUsers(data) {
+  $("users").replaceChildren();
+  for (const user of data.users) {
+    const card = node("article", "route-card");
+    const edit = node("button", "button secondary", "Edit " + user.username);
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      state.editingUser = true; $("user-name").value = user.username; $("user-name").readOnly = true;
+      $("user-password").value = ""; $("user-password").required = false;
+      $("user-role").value = user.role; $("user-orgs").value = user.orgs.join(", ");
+      $("user-active").checked = user.active; $("user-form-title").textContent = "Edit " + user.username;
+      $("user-feedback").textContent = "Leave password blank to keep it unchanged.";
+      $("user-role").focus();
+    });
+    card.append(node("h3", "", user.username), node("p", "", user.role + " · " + (user.active ? "Enabled" : "Disabled")), node("p", "", user.role === "admin" ? "All organizations" : user.orgs.join(", ")), edit);
+    $("users").append(card);
+  }
+  api("cache").then(info => { $("cache-status").textContent = "Redis cache: " + info.state + " · " + info.ttl_seconds + "s TTL · " + info.hits + " hits / " + info.misses + " misses"; }).catch(() => { $("cache-status").textContent = "Cache status unavailable"; });
+}
+$("new-user").addEventListener("click", resetUser);
+$("user-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); $("save-user").disabled = true;
+  const payload = {username: $("user-name").value.trim(), role: $("user-role").value, orgs: $("user-orgs").value.split(",").map(s => s.trim()).filter(Boolean), active: $("user-active").checked};
+  if ($("user-password").value) payload.password = $("user-password").value;
+  try {
+    const response = await fetch("/api/dashboard/users", {method: state.editingUser ? "PUT" : "POST", headers: {"Content-Type": "application/json", "X-Sgnlol-Request": "dashboard"}, credentials: "same-origin", body: JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not save user");
+    resetUser(); $("user-feedback").textContent = "User saved. Permission changes apply to the next request.";
+    await initialize();
+  } catch (err) { $("user-password").value = ""; $("user-feedback").textContent = err.message; }
+  finally { $("save-user").disabled = false; }
+});
+resetUser();
+initialize();

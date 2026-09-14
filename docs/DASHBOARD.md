@@ -1,16 +1,30 @@
 # Signal inbox and operator guide
 
-The dashboard at `/dashboard` reads the events and delivery records stored by the Railway worker. This guide describes the new implementation; its production rollout must be verified separately.
+The dashboard at `/dashboard` reads the events and delivery records stored by the Railway worker. Accounts, roles, and cached reads are described below.
 
 ## Sign in and inspect activity
 
-Set `DASHBOARD_PASSWORD` privately in Railway, then open [the production dashboard](https://sgnlol-production.up.railway.app/dashboard). HTTP Basic authentication uses username `rob` by default; `DASHBOARD_USERNAME` can override it. An unset password disables access with HTTP 503. Use HTTPS and keep credentials out of URLs, screenshots, and source control.
+Open [the production dashboard](https://sgn.lol/dashboard). Public HTTP port 80 redirects to HTTPS; the app listens on internal port 8000. Use the browser's HTTP Basic sign-in prompt and keep credentials out of URLs and source control.
+
+On an empty accounts table, `DASHBOARD_USERNAME` (default `rob`) and `DASHBOARD_PASSWORD` bootstrap the first admin. Accounts then persist in SQLite; changing those variables does **not** reset existing passwords or restore disabled users. Without any account, access returns 503.
+
+| Role | Permissions | Organization access |
+| --- | --- | --- |
+| Admin | Events, deliveries, routing, user management, cache status | All organizations |
+| Analyst | Events, deliveries, routing | Assigned organization IDs only |
+| Viewer | Events and scores | Assigned organization IDs only |
+
+Admins use **Users & access** to create users, change passwords/roles/organization assignments, or disable access. Assign `talacha` for the current installation. New and changed passwords require at least 12 characters and are stored as salted scrypt hashes. Passwords cannot be retrieved. The last active admin cannot be disabled or demoted. To rotate your own password, save it and sign in again with the new password when prompted. Basic authentication has no application logout button; close the browser session to clear remembered credentials.
+
+Every request checks the account in SQLite, so disabling an account or changing its role affects the next request, including cached reads. Non-admin scope is derived from that account, enforced through parameterized SQL on events, details, aggregates, and deliveries, and included in cache keys. This is application-enforced row isolation: SQLite has no native RLS policies. CLI/database administrators remain trusted and unrestricted. A future PostgreSQL migration can add database-native RLS without changing the role model.
+
+User changes require authenticated admin permission, JSON, a same-origin request, and the dashboard's request-verification header. There is no public signup. Ten incorrect passwords for a username within a minute temporarily throttle sign-in for that username.
 
 - **Signal inbox:** filter by source, processing status, minimum score, or text; sort by newest or highest score. Open an event to read its source content, rationale, summary, model/rubric provenance, fallback marker, and delivery history.
 - **Deliveries:** inspect recipient, batching state, attempts, and failures separately from scoring. A completed event does not by itself prove a Slack message was delivered.
 - **Routing:** inspect the current allowlist, recipient, and thresholds. This is a read-only view; there is no configuration editor.
 
-Click **Refresh** to fetch current records. The interface does not stream new events automatically. Empty results can mean no allowed events have arrived, or that the selected filters exclude them. Dashboard pages and `/api/dashboard/*` endpoints require the same authentication and perform no writes.
+Click **Refresh** to fetch current records. The interface does not stream new events automatically. Empty results can mean no allowed events have arrived, or that the selected filters exclude them. Dashboard pages and `/api/dashboard/*` endpoints require the same authentication. Activity inspection is read-only; admin user management writes only account records.
 
 ## What scores mean
 
@@ -70,3 +84,9 @@ The existing `sgnlol set-threshold ORG_ID 0.7 [--repo owner/name]` command edits
 The installed app uses HTTP Events API with Socket Mode disabled. Its Messages tab is enabled so the configured user recipient can receive flags. The generated starter shortcut and slash command were removed from the deployed manifest because they require Socket Mode or HTTP handlers; the triage service does not implement them. No additional OAuth scopes were requested.
 
 Provider diagnostics record known safe error codes (for example `messages_tab_disabled`) and identify exhausted OpenAI credits without storing raw provider error bodies. Historical failed batches remain failed; fixing configuration does not automatically resend them.
+
+## Redis read cache
+
+Set `REDIS_URL` to the private Railway Redis service reference `${{Redis.REDIS_URL}}`. The cache stores only short-lived dashboard event/overview/delivery responses. `CACHE_TTL_SECONDS` defaults to 5 (allowed 1–60); keys include account permissions, organization scope, request filters, and SQLite change versions. Authentication, users, and routing are always read from their authoritative sources. Entries expire and never replace durable SQLite records or webhook deduplication.
+
+Redis connection/read/write failures fall back to SQLite with short connection timeouts and a five-second retry delay. Without `REDIS_URL`, caching is disabled. Admins can inspect cache hits, misses, and errors in **Users & access** or `/api/dashboard/cache`. Redis stays on Railway's private network with no public TCP proxy. The current deployment is a single app replica with a persistent SQLite volume.

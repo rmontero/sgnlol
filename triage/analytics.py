@@ -11,8 +11,16 @@ from triage.store import Store
 class Analytics:
     """Operator inspection; callers must enforce operator authentication."""
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, orgs=None):
         self.store = store
+        self.orgs = None if orgs is None else tuple(orgs)
+
+    def _scope(self, column="org_id"):
+        if self.orgs is None:
+            return "1", []
+        if not self.orgs:
+            return "0", []
+        return column + " IN (" + ",".join("?" for _ in self.orgs) + ")", list(self.orgs)
 
     @staticmethod
     def _page(limit, offset):
@@ -21,8 +29,9 @@ class Analytics:
     def overview(self) -> dict:
         with self.store._lock:
             db = self.store.db
-            events = dict(db.execute("SELECT status,COUNT(*) FROM events GROUP BY status"))
-            batches = dict(db.execute("SELECT status,COUNT(*) FROM batches GROUP BY status"))
+            scope, args = self._scope()
+            events = dict(db.execute("SELECT status,COUNT(*) FROM events WHERE " + scope + " GROUP BY status", args))
+            batches = dict(db.execute("SELECT status,COUNT(*) FROM batches WHERE " + scope + " GROUP BY status", args))
             row = db.execute("""
                 SELECT COUNT(*) AS processed,
                     AVG(CASE WHEN COALESCE(json_extract(score, '$.fallback'),0) = 0 AND NULLIF(json_extract(score, '$.model'),'') IS NOT NULL THEN json_extract(score, '$.score') END) AS avg_score,
@@ -34,8 +43,8 @@ class Analytics:
                     COALESCE(SUM(COALESCE(json_extract(score, '$.fallback'),0) = 0 AND NULLIF(json_extract(score, '$.model'),'') IS NOT NULL AND json_extract(score, '$.score') >= .4 AND json_extract(score, '$.score') < .7),0) AS medium,
                     COALESCE(SUM(COALESCE(json_extract(score, '$.fallback'),0) = 0 AND NULLIF(json_extract(score, '$.model'),'') IS NOT NULL AND json_extract(score, '$.score') >= .7 AND json_extract(score, '$.score') < .9),0) AS high,
                     COALESCE(SUM(COALESCE(json_extract(score, '$.fallback'),0) = 0 AND NULLIF(json_extract(score, '$.model'),'') IS NOT NULL AND json_extract(score, '$.score') >= .9),0) AS critical
-                FROM events WHERE score IS NOT NULL
-            """).fetchone()
+                FROM events WHERE score IS NOT NULL AND
+            """ + scope, args).fetchone()
             return {
                 "events": events, "batches": batches, "total_events": sum(events.values()),
                 "processed": row["processed"], "filtered": events.get("filtered", 0),
@@ -82,7 +91,8 @@ class Analytics:
         }
         if sort not in orders:
             raise ValueError("sort must be newest, oldest, or score")
-        conditions, params = [], []
+        scope, params = self._scope("e.org_id")
+        conditions = [scope]
         for name, value in (("source", source), ("status", status)):
             if value is not None:
                 conditions.append(f"e.{name} = ?")
@@ -110,7 +120,8 @@ class Analytics:
 
     def event(self, event_id: str) -> dict | None:
         with self.store._lock:
-            rows = self.store.db.execute("SELECT * FROM events WHERE id=? LIMIT 2", (event_id,)).fetchall()
+            scope, args = self._scope()
+            rows = self.store.db.execute("SELECT * FROM events WHERE id=? AND " + scope + " LIMIT 2", [event_id, *args]).fetchall()
             if len(rows) > 1:
                 raise ValueError("Ambiguous event identifier")
             return self._items(rows)[0] if rows else None
@@ -118,11 +129,11 @@ class Analytics:
     def deliveries(self, limit=50, offset=0) -> dict:
         limit, offset = self._page(limit, offset)
         with self.store._lock:
-            total = self.store.db.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
+            scope, args = self._scope("b.org_id")
+            total = self.store.db.execute("SELECT COUNT(*) FROM batches b WHERE " + scope, args).fetchone()[0]
             rows = self.store.db.execute("""
                 SELECT b.id,b.org_id,b.recipient,b.subject_key,b.status,b.due_at,
                     b.error,b.slack_ts,b.attempts,
                     (SELECT COUNT(*) FROM batch_events be WHERE be.batch_id=b.id) AS event_count
-                FROM batches b ORDER BY b.due_at DESC,b.id DESC LIMIT ? OFFSET ?
-            """, (limit, offset)).fetchall()
+                FROM batches b WHERE """ + scope + " ORDER BY b.due_at DESC,b.id DESC LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
             return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}

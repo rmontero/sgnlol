@@ -5,7 +5,7 @@ Service: `e935d646-ba05-41a3-9a60-1b85db9d263d`
 Environment: `production` (`0dd2f9a5-5a78-4e79-9684-493de1a5f288`)
 Volume: `sgnlol-volume` (`9f66c446-5d0f-48d9-9531-12e5fc18ca78`), mounted at `/app/data`
 
-Public URL: https://sgnlol-production.up.railway.app
+Public URL: https://sgn.lol (also https://sgnlol-production.up.railway.app)
 Railway console: https://railway.com/project/d7b1b56f-39f2-4d24-807a-5592f092cec0/service/e935d646-ba05-41a3-9a60-1b85db9d263d?environmentId=0dd2f9a5-5a78-4e79-9684-493de1a5f288
 
 ## Runtime
@@ -24,7 +24,7 @@ For the new routing support, set `ROUTING_CONFIG_YAML` to the complete YAML docu
 
 The authorized source is `#ai-tinkerers` (`C0C18A105S7`) in workspace `T02CGKDRDV1`, with flags sent to `@rob` (`U02C1MHKQF9`). The repository is `rmontero/sgnlol` and the initial threshold is `0.7`. Verify the deployed routing view matches these values before testing. Older ignored messages are not backfilled.
 
-Set `DASHBOARD_PASSWORD` privately to enable `/dashboard`; its HTTP Basic username defaults to `rob` and can be changed with `DASHBOARD_USERNAME`. See [DASHBOARD.md](DASHBOARD.md) for score inspection, delivery states, and SQLite backups. These new capabilities still require a successful production rollout and live checks before being treated as deployed.
+`DASHBOARD_PASSWORD` and `DASHBOARD_USERNAME` bootstrap the first persistent admin on an empty accounts table. Manage subsequent accounts through **Users & access**. See [DASHBOARD.md](DASHBOARD.md) for roles, organization isolation, Redis configuration, and SQLite backups. Public port 80 redirects to HTTPS; Railway forwards HTTPS to the non-root app on internal port 8000. Redis service `02308af4-09a6-4105-91a2-02c6d9c982db` is private, referenced by the app via `REDIS_URL=${{Redis.REDIS_URL}}`.
 
 Validate remotely when SSH access is available:
 

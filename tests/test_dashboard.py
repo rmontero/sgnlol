@@ -42,8 +42,10 @@ def test_every_dashboard_surface_requires_auth(dashboard, path):
 
 
 def test_disabled_dashboard_and_unaffected_health(dashboard):
-    client, _, settings = dashboard
+    client, store, settings = dashboard
     settings.dashboard_password = ""
+    store.db.execute("DELETE FROM dashboard_users")
+    store.db.commit()
     assert client.get("/api/dashboard/overview").status_code == 503
     assert client.get("/healthz").json() == {"status": "ok"}
 

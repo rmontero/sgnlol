@@ -21,11 +21,12 @@
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-view="inbox" aria-current="page">
           <span aria-hidden="true">▤</span> Signal inbox</button
-        ><button class="nav-item" data-view="deliveries">
+        ><button class="nav-item" data-view="deliveries" data-permission="deliveries:read" hidden>
           <span aria-hidden="true">↗</span> Deliveries</button
-        ><button class="nav-item" data-view="routing">
+        ><button class="nav-item" data-view="routing" data-permission="routing:read" hidden>
           <span aria-hidden="true">⌘</span> Routing
         </button>
+        <button class="nav-item" data-view="users" data-permission="users:manage" hidden>Users &amp; access</button>
       </nav>
       <div class="sidebar-bottom">
         <span class="status-dot"></span>GitHub + Slack
@@ -48,7 +49,7 @@
             Every event, ranked. Know what deserves your attention.
           </p>
         </div>
-        <span class="read-only">Read-only workspace</span>
+        <span class="read-only" id="account-label">Signing in…</span>
       </section>
       <div id="notice" role="alert" hidden></div>
       <section id="metrics" class="metrics" aria-label="Triage overview">
@@ -180,6 +181,21 @@
           <p>Configured sources, thresholds, and flag recipients.</p>
         </div>
         <div id="routing" class="routing-grid" aria-live="polite"></div>
+      </section>
+      <section id="users-view" class="view" hidden>
+        <div class="section-heading"><h2>Users &amp; access</h2><p>Admins manage accounts. Analysts inspect deliveries and routing. Viewers read scored events.</p></div>
+        <div id="users" class="routing-grid" aria-live="polite"></div>
+        <form id="user-form" class="user-form">
+          <h3 id="user-form-title">Create user</h3>
+          <label>Username<input id="user-name" required maxlength="64" autocomplete="off" pattern="[a-zA-Z0-9_.-]+"></label>
+          <label>Password<input id="user-password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" placeholder="At least 12 characters"></label>
+          <label>Role<select id="user-role"><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Admin</option></select></label>
+          <label>Organization IDs<input id="user-orgs" placeholder="talacha" maxlength="2000"><span>Comma separated. Required for viewers and analysts. Admins can access all organizations.</span></label>
+          <label class="checkbox-label"><input id="user-active" type="checkbox" checked>Account enabled</label>
+          <div><button class="button secondary" id="save-user" type="submit">Save user</button> <button class="button secondary" id="new-user" type="button">New user</button></div>
+          <p id="user-feedback" role="status"></p>
+        </form>
+        <p id="cache-status"></p>
       </section>
       <footer>
         sgnlol <span>•</span> Relevance is a decision. Keep the reasoning

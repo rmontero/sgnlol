@@ -31,6 +31,11 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
         # Validate routing before accepting traffic. No network calls at startup.
         load_config(settings.config_path)
         app.state.store = store or Store(settings.database_path)
+        from .accounts import Accounts
+        from .cache import DashboardCache
+        app.state.accounts = Accounts(app.state.store)
+        app.state.accounts.bootstrap(settings.dashboard_username, settings.dashboard_password)
+        app.state.cache = DashboardCache(settings.redis_url, settings.cache_ttl_seconds)
         sender = delivery or SlackDelivery(settings)
         stop = asyncio.Event()
         classifier = scorer or Scorer(settings)
@@ -50,6 +55,7 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
                 await classifier.close()
             if delivery is None:
                 await sender.close()
+            app.state.cache.close()
             if store is None:
                 app.state.store.close()
 

@@ -94,6 +94,8 @@ class Settings:
     openai_webhook_secret: str = field(default="", repr=False)
     dashboard_username: str = "rob"
     dashboard_password: str = field(default="", repr=False)
+    redis_url: str = field(default="", repr=False)
+    cache_ttl_seconds: int = 5
     model: str = "gpt-4.1-mini"
     batch_window_seconds: float = 10
     max_attempts: int = 3
@@ -103,6 +105,8 @@ class Settings:
     def __post_init__(self) -> None:
         if not self.database_path or not self.config_path or not self.model.strip():
             raise ValueError("Database path, config path, and model must be nonempty")
+        if not 1 <= self.cache_ttl_seconds <= 60:
+            raise ValueError("CACHE_TTL_SECONDS must be between 1 and 60")
         if self.fail_safe not in {"forward", "dead_letter"}:
             raise ValueError("FAIL_SAFE must be forward or dead_letter")
         if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int) or self.max_attempts < 1:
@@ -125,6 +129,8 @@ class Settings:
             openai_webhook_secret=os.getenv("OPENAI_WEBHOOK_SECRET", ""),
             dashboard_username=os.getenv("DASHBOARD_USERNAME", "rob"),
             dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
+            redis_url=os.getenv("REDIS_URL", ""),
+            cache_ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "5")),
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             batch_window_seconds=float(os.getenv("BATCH_WINDOW_SECONDS", "10")),
             max_attempts=int(os.getenv("MAX_ATTEMPTS", "3")),
