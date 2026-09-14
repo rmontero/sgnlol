@@ -92,6 +92,8 @@ class Settings:
     slack_bot_user_id: str = ""
     openai_api_key: str = field(default="", repr=False)
     openai_webhook_secret: str = field(default="", repr=False)
+    dashboard_username: str = "rob"
+    dashboard_password: str = field(default="", repr=False)
     model: str = "gpt-4.1-mini"
     batch_window_seconds: float = 10
     max_attempts: int = 3
@@ -103,11 +105,7 @@ class Settings:
             raise ValueError("Database path, config path, and model must be nonempty")
         if self.fail_safe not in {"forward", "dead_letter"}:
             raise ValueError("FAIL_SAFE must be forward or dead_letter")
-        if (
-            isinstance(self.max_attempts, bool)
-            or not isinstance(self.max_attempts, int)
-            or self.max_attempts < 1
-        ):
+        if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int) or self.max_attempts < 1:
             raise ValueError("MAX_ATTEMPTS must be a positive integer")
         if not math.isfinite(self.batch_window_seconds) or self.batch_window_seconds < 0:
             raise ValueError("BATCH_WINDOW_SECONDS must be finite and nonnegative")
@@ -125,6 +123,8 @@ class Settings:
             slack_bot_user_id=os.getenv("SLACK_BOT_USER_ID", ""),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             openai_webhook_secret=os.getenv("OPENAI_WEBHOOK_SECRET", ""),
+            dashboard_username=os.getenv("DASHBOARD_USERNAME", "rob"),
+            dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             batch_window_seconds=float(os.getenv("BATCH_WINDOW_SECONDS", "10")),
             max_attempts=int(os.getenv("MAX_ATTEMPTS", "3")),

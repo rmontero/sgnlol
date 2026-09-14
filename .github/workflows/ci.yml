@@ -16,6 +16,7 @@ jobs:
           cache-dependency-path: requirements.lock
       - run: python -m pip install -r requirements.lock
       - run: python -m pip install --no-deps -e .
+      - run: python -m pip install slack-bolt==1.30.0 slack-cli-hooks==0.3.0 slack-sdk==3.44.1
       - run: ruff check .
       - run: python -m pytest
       - run: sgnlol validate-config --config config/orgs.example.yaml

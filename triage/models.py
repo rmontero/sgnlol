@@ -33,6 +33,9 @@ class Score(BaseModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     fallback: bool = False
+    # Legacy records and policy fallbacks have no model provenance.
+    model: str | None = None
+    rubric_version: str | None = None
 
 
 class Route(BaseModel):

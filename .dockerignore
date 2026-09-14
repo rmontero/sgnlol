@@ -7,3 +7,12 @@ data
 __pycache__
 .pytest_cache
 config/orgs.yaml
+
+.slack
+logs
+tests
+.ruff_cache
+*.egg-info
+build
+dist
+.DS_Store

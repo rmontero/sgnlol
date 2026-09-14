@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from standardwebhooks import WebhookVerificationError
 
 from .config import Settings, load_config
+from .dashboard import install_dashboard
 from .ingest import normalize_github, normalize_slack, verify_github, verify_slack
 from .openai_webhook import OpenAIEvent, verify_openai
 from .store import Store
@@ -109,17 +110,13 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
     @app.post("/webhooks/github")
     async def github(request: Request):
         body = await body_bytes(request)
-        if not verify_github(
-            body, request.headers.get("x-hub-signature-256", ""), settings.github_webhook_secret
-        ):
+        if not verify_github(body, request.headers.get("x-hub-signature-256", ""), settings.github_webhook_secret):
             raise HTTPException(401, "Invalid signature")
         payload = parse(body)
         delivery_id = request.headers.get("x-github-delivery", "")
         if not delivery_id or len(delivery_id) > 256:
             raise HTTPException(400, "Missing or invalid delivery ID")
-        event = normalize_github(
-            payload, request.headers.get("x-github-event", ""), delivery_id, config()
-        )
+        event = normalize_github(payload, request.headers.get("x-github-event", ""), delivery_id, config())
         if event:
             event.metadata["webhook_body_sha256"] = hashlib.sha256(body).hexdigest()
         queued = app.state.store.enqueue(event) if event else False
@@ -145,6 +142,7 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
         queued = app.state.store.enqueue(event) if event else False
         return {"accepted": True, "queued": queued}
 
+    install_dashboard(app, settings)
     return app
 
 

@@ -1,0 +1,580 @@
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = {
+  view: "inbox",
+  offset: 0,
+  deliveryOffset: 0,
+  limit: 25,
+  generation: 0,
+};
+const titles = {
+  inbox: [
+    "Signal inbox",
+    "Every event, ranked. Know what deserves your attention.",
+  ],
+  deliveries: [
+    "Deliveries",
+    "Follow each notification from decision to destination.",
+  ],
+  routing: [
+    "Routing",
+    "The sources you listen to. The people you trust to act.",
+  ],
+};
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = String(text);
+  return n;
+}
+function number(n) {
+  return Number.isFinite(Number(n))
+    ? new Intl.NumberFormat().format(Number(n))
+    : "—";
+}
+function date(value) {
+  if (!value) return "—";
+  const d = new Date(typeof value === "number" ? value * 1000 : value);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+}
+function scoreValue(item) {
+  const v =
+    typeof item.score === "object" && item.score !== null
+      ? item.score.score
+      : item.score;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function scoreBadge(item) {
+  const v = scoreValue(item);
+  const fallback = item.score?.fallback;
+  const legacy = v !== null && !fallback && !item.score?.model;
+  const label = fallback
+    ? "Fallback policy decision; no model relevance score"
+    : v === null
+      ? "Not scored yet"
+      : `${legacy ? "Recorded score, model provenance unavailable" : "Model relevance"}: ${Math.round(v * 100)} out of 100`;
+  const result = node(
+    "span",
+    "score " +
+      (fallback
+        ? "fallback"
+        : v === null
+          ? "unscored"
+          : v >= 0.9
+            ? "critical"
+            : v >= 0.7
+              ? "high"
+              : ""),
+    fallback
+      ? "F"
+      : v === null
+        ? "—"
+        : Math.round(v * 100) + (legacy ? "?" : ""),
+  );
+  result.setAttribute("aria-label", label);
+  result.title = label;
+  return result;
+}
+function identity(value) {
+  const names = { C0C18A105S7: "#ai-tinkerers", U02C1MHKQF9: "@rob" };
+  return names[value] ? `${names[value]} (${value})` : String(value || "—");
+}
+function badge(value) {
+  const v = String(value || "unknown");
+  return node(
+    "span",
+    "badge" + (/fail|dead|unknown|error/i.test(v) ? " problem" : ""),
+    v.replaceAll("_", " "),
+  );
+}
+function empty(container, title, description) {
+  container.replaceChildren();
+  const box = node("div", "empty");
+  box.append(node("strong", "", title), node("p", "", description));
+  container.append(box);
+}
+function safeLink(raw) {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && !url.username && !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+async function api(path) {
+  const response = await fetch("/api/dashboard/" + path, {
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok)
+    throw new Error(
+      response.status === 401
+        ? "Sign-in is required. Reload the dashboard to authenticate."
+        : "The dashboard could not load data (HTTP " +
+            response.status +
+            "). Try refreshing.",
+    );
+  return response.json();
+}
+function error(err) {
+  $("notice").textContent =
+    err instanceof Error ? err.message : "Could not load dashboard data.";
+  $("notice").hidden = false;
+}
+function setPage(prefix, offset, total, count) {
+  const isEvents = prefix === "";
+  const info = $(isEvents ? "page-info" : "delivery-page-info");
+  info.textContent =
+    !count && total
+      ? `No results on this page · ${number(total)} total`
+      : total
+        ? `${number(offset + 1)}–${number(offset + count)} of ${number(total)}`
+        : "0 results";
+  $(prefix + "previous").disabled = offset <= 0;
+  $(prefix + "next").disabled = offset + count >= total;
+}
+function detail(item) {
+  const content = $("detail-content");
+  content.replaceChildren();
+  content.append(
+    scoreBadge(item),
+    node("h2", "", item.score?.summary || item.kind || "Event details"),
+  );
+  content.querySelector("h2").id = "detail-title";
+  const meta = node("div", "detail-meta");
+  meta.append(badge(item.source), badge(item.status));
+  if (item.score?.fallback) meta.append(badge("fallback decision"));
+  else if (scoreValue(item) !== null)
+    meta.append(
+      badge(item.score?.model ? "model scored" : "provenance unavailable"),
+    );
+  content.append(meta);
+  content.append(
+    node("h3", "", "Source context"),
+    node(
+      "p",
+      "",
+      [
+        item.repo,
+        item.actor ? identity(item.actor) : "",
+        date(item.received_at),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    ),
+  );
+  content.append(
+    node("h3", "", "Original event"),
+    node("p", "", item.text || "No message body was stored."),
+  );
+  content.append(
+    node("h3", "", "Why this score"),
+    node(
+      "p",
+      "",
+      item.score?.rationale ||
+        "This event has no stored scoring rationale yet.",
+    ),
+  );
+  if (item.score?.fallback)
+    content.append(
+      node(
+        "p",
+        "",
+        "This decision used the configured scoring fallback. It is not a successful model relevance assessment.",
+      ),
+    );
+  if (item.score?.model || item.score?.rubric_version)
+    content.append(
+      node("h3", "", "Scoring provenance"),
+      node(
+        "p",
+        "",
+        [item.score.model, item.score.rubric_version]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+  if (item.score)
+    content.append(
+      node("h3", "", "Recorded token usage"),
+      node(
+        "p",
+        "",
+        number(item.score.input_tokens) +
+          " input · " +
+          number(item.score.output_tokens) +
+          " output. Counts reflect stored scoring usage; failed attempts may not be included.",
+      ),
+    );
+  if (scoreValue(item) !== null && !item.score?.fallback && !item.score?.model)
+    content.append(
+      node(
+        "p",
+        "",
+        "This stored score has no model provenance. It is excluded from model relevance averages and distribution.",
+      ),
+    );
+  content.append(
+    node("h3", "", "Scoring guide"),
+    node(
+      "p",
+      "",
+      "0–39: low relevance · 40–69: medium · 70–89: high · 90–100: critical. Routing thresholds determine whether a notification is delivered.",
+    ),
+  );
+  if (item.error)
+    content.append(
+      node("h3", "", "Processing error"),
+      node("p", "", item.error),
+    );
+  content.append(node("h3", "", "Delivery history"));
+  if (!item.deliveries?.length)
+    content.append(node("p", "", "No delivery recorded for this event."));
+  else
+    for (const delivery of item.deliveries) {
+      const row = node("div", "detail-delivery");
+      row.append(
+        badge(delivery.status),
+        node("p", "", "Recipient: " + identity(delivery.recipient)),
+      );
+      if (delivery.error) row.append(node("p", "", delivery.error));
+      content.append(row);
+    }
+  const url = safeLink(item.url);
+  if (url) {
+    const a = node("a", "source-link", "Open original event ↗");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    content.append(a);
+  }
+  if (!$("detail").open) $("detail").showModal();
+}
+function renderEvents(data) {
+  const items = data.items || [];
+  $("event-count").textContent = number(data.total || 0);
+  if (!items.length)
+    empty(
+      $("events"),
+      "No events to show",
+      "Try changing your filters. Events appear after an allowed source sends a supported webhook; a 200 response alone does not mean an event was queued or scored.",
+    );
+  else {
+    $("events").replaceChildren();
+    for (const item of items) {
+      const row = node("article", "event-row");
+      row.append(scoreBadge(item));
+      const main = node("div", "event-main");
+      const meta = node("div", "event-meta");
+      meta.append(
+        node(
+          "span",
+          "source",
+          item.source === "github"
+            ? "GitHub"
+            : item.source === "slack"
+              ? "Slack"
+              : item.source || "Source",
+        ),
+        node("span", "", item.repo || item.kind || ""),
+        node("span", "", item.actor ? identity(item.actor) : ""),
+      );
+      const title = node(
+        "button",
+        "event-title",
+        item.score?.summary || item.text || item.kind || "View event",
+      );
+      title.type = "button";
+      title.addEventListener("click", () => detail(item));
+      main.append(
+        meta,
+        title,
+        node(
+          "p",
+          "event-summary",
+          item.score?.fallback
+            ? "Fallback decision · " +
+                (item.score?.rationale || "Review scoring availability")
+            : (scoreValue(item) !== null && !item.score?.model
+                ? "Provenance unavailable · "
+                : "") +
+                (item.score?.rationale || "Waiting for a relevance assessment"),
+        ),
+      );
+      const status = node("div", "event-status");
+      status.append(badge(item.status));
+      row.append(
+        main,
+        status,
+        node("time", "event-time", date(item.received_at)),
+      );
+      $("events").append(row);
+    }
+  }
+  setPage("", state.offset, data.total || 0, items.length);
+}
+async function events() {
+  const params = new URLSearchParams({
+    limit: state.limit,
+    offset: state.offset,
+    sort: $("sort").value,
+  });
+  for (const [key, id] of [
+    ["q", "search"],
+    ["source", "source"],
+    ["status", "status"],
+    ["min_score", "min-score"],
+  ])
+    if ($(id).value) params.set(key, $(id).value);
+  return api("events?" + params);
+}
+function renderDeliveries(data) {
+  const items = data.items || [];
+  if (!items.length)
+    empty(
+      $("deliveries"),
+      "No deliveries recorded",
+      "Notifications appear here when scored events meet a configured routing threshold.",
+    );
+  else {
+    $("deliveries").replaceChildren();
+    for (const item of items) {
+      const row = node("article", "event-row");
+      row.append(node("span", "score", "↗"));
+      const body = node("div", "event-main");
+      body.append(
+        node("div", "event-meta", item.org_id || "Organization"),
+        node(
+          "strong",
+          "event-title",
+          identity(item.recipient || item.destination),
+        ),
+        node(
+          "p",
+          "event-summary",
+          item.error ||
+            item.summary ||
+            [
+              item.subject_key,
+              number(item.event_count) + " events",
+              "Batch " + String(item.id || ""),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+        ),
+      );
+      const status = node("div", "event-status");
+      status.append(badge(item.status));
+      row.append(
+        body,
+        status,
+        node(
+          "time",
+          "event-time",
+          date(item.created_at || item.updated_at || item.due_at),
+        ),
+      );
+      $("deliveries").append(row);
+    }
+  }
+  setPage("delivery-", state.deliveryOffset, data.total || 0, items.length);
+}
+function renderRouting(data) {
+  const orgs = data.orgs || [];
+  if (!orgs.length) {
+    empty(
+      $("routing"),
+      "Routing setup required",
+      "No organizations are configured. Allowed sources and recipients must be configured before events can be queued.",
+    );
+    return;
+  }
+  $("routing").replaceChildren();
+  for (const org of orgs) {
+    const card = node("article", "route-card");
+    card.append(node("h3", "", org.name || org.id || "Organization"));
+    const dl = node("dl");
+    const rows = [
+      [
+        "Slack channels",
+        (org.slack_channels || []).map(identity).join(", ") ||
+          "None configured",
+      ],
+      [
+        "Flag recipient",
+        org.recipient ? identity(org.recipient) : "Per repository",
+      ],
+      ["Default threshold", Math.round(org.threshold * 100) + " / 100"],
+      ["Slack workspace", org.slack_team_id],
+      ["GitHub owner", org.github_org],
+      ["Routing mode", org.type],
+    ];
+    for (const [label, value] of rows)
+      dl.append(node("dt", "", label), node("dd", "", value));
+    dl.append(node("dt", "", "Repositories"));
+    const repos = node("dd");
+    for (const [name, config] of Object.entries(org.repos || {})) {
+      repos.append(
+        node(
+          "p",
+          "",
+          name +
+            " · threshold " +
+            Math.round((config.threshold ?? org.threshold) * 100) +
+            " / 100 · " +
+            (config.recipients?.length
+              ? config.recipients.map(identity).join(", ")
+              : identity(org.recipient)),
+        ),
+      );
+    }
+    if (!repos.childElementCount) repos.textContent = "None configured";
+    dl.append(repos);
+    card.append(dl);
+    $("routing").append(card);
+  }
+}
+function disablePagination(prefix) {
+  $(prefix + "previous").disabled = true;
+  $(prefix + "next").disabled = true;
+  $(prefix ? "delivery-page-info" : "page-info").textContent = "";
+}
+function renderOverview(overview) {
+  $("metric-total").textContent = number(overview.total_events);
+  $("metric-score").textContent =
+    overview.avg_score == null ? "—" : Math.round(overview.avg_score * 100);
+  $("metric-model-detail").textContent =
+    number(overview.model_scored_count) + " verified model scores · 0–100";
+  $("metric-filtered").textContent =
+    overview.filter_rate == null
+      ? "—"
+      : Math.round(overview.filter_rate * 100) + "%";
+  $("metric-filtered-detail").textContent =
+    number(overview.filtered) + " processed events filtered by policy";
+  $("metric-fallback").textContent = number(overview.fallback_count);
+  $("token-usage").textContent =
+    number(overview.input_tokens) +
+    " input / " +
+    number(overview.output_tokens) +
+    " output";
+  const buckets = overview.score_buckets || {};
+  $("score-distribution").replaceChildren();
+  for (const [key, label] of [
+    ["low", "Low 0–39"],
+    ["medium", "Medium 40–69"],
+    ["high", "High 70–89"],
+    ["critical", "Critical 90–100"],
+  ]) {
+    $("score-distribution").append(
+      node("span", "", label + ": " + number(buckets[key] || 0)),
+    );
+  }
+}
+async function refresh() {
+  const generation = ++state.generation;
+  $("refresh").disabled = true;
+  $("notice").hidden = true;
+  const target = state.view;
+  disablePagination(target === "deliveries" ? "delivery-" : "");
+  const container = $(target === "inbox" ? "events" : target);
+  container.setAttribute("aria-busy", "true");
+  empty(container, "Loading…", "Fetching the latest stored activity.");
+  try {
+    const [overview, content] = await Promise.all([
+      api("overview"),
+      target === "inbox"
+        ? events()
+        : target === "deliveries"
+          ? api(
+              "deliveries?limit=" +
+                state.limit +
+                "&offset=" +
+                state.deliveryOffset,
+            )
+          : api("routing"),
+    ]);
+    if (generation !== state.generation) return;
+    renderOverview(overview);
+    if (target === "inbox") renderEvents(content);
+    else if (target === "deliveries") renderDeliveries(content);
+    else renderRouting(content);
+    $("updated").textContent =
+      "Updated " +
+      new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch (err) {
+    if (generation === state.generation) {
+      error(err);
+      empty(
+        container,
+        "Unable to load activity",
+        "Refresh to try again. Previously stored events are not changed by this dashboard.",
+      );
+    }
+  } finally {
+    if (generation === state.generation) {
+      $("refresh").disabled = false;
+      container.setAttribute("aria-busy", "false");
+    }
+  }
+}
+for (const button of document.querySelectorAll("[data-view]"))
+  button.addEventListener("click", () => {
+    state.view = button.dataset.view;
+    for (const nav of document.querySelectorAll("[data-view]")) {
+      const active = nav === button;
+      nav.classList.toggle("active", active);
+      if (active) nav.setAttribute("aria-current", "page");
+      else nav.removeAttribute("aria-current");
+    }
+    for (const view of ["inbox", "deliveries", "routing"])
+      $(view + "-view").hidden = view !== state.view;
+    $("page-title").textContent = titles[state.view][0];
+    $("page-description").textContent = titles[state.view][1];
+    refresh();
+  });
+$("filters").addEventListener("submit", (e) => {
+  e.preventDefault();
+  state.offset = 0;
+  refresh();
+});
+$("refresh").addEventListener("click", refresh);
+$("previous").addEventListener("click", () => {
+  state.offset = Math.max(0, state.offset - state.limit);
+  refresh();
+});
+$("next").addEventListener("click", () => {
+  state.offset += state.limit;
+  refresh();
+});
+$("delivery-previous").addEventListener("click", () => {
+  state.deliveryOffset = Math.max(0, state.deliveryOffset - state.limit);
+  refresh();
+});
+$("delivery-next").addEventListener("click", () => {
+  state.deliveryOffset += state.limit;
+  refresh();
+});
+$("close-detail").addEventListener("click", () => $("detail").close());
+$("detail").addEventListener("click", (e) => {
+  const bounds = $("detail").getBoundingClientRect();
+  if (
+    e.target === $("detail") &&
+    (e.clientX < bounds.left ||
+      e.clientX > bounds.right ||
+      e.clientY < bounds.top ||
+      e.clientY > bounds.bottom)
+  )
+    $("detail").close();
+});
+refresh();

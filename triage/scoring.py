@@ -12,8 +12,11 @@ from triage.config import Settings
 from triage.models import Event, Score
 
 
+RUBRIC_VERSION = "engineering-relevance-v1"
+
+
 class RelevanceOutput(BaseModel):
-    """Only model-authored fields; billing and fallback state come from code."""
+    """Only model-authored fields; usage, provenance and fallback come from code."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     score: float = Field(ge=0, le=1)
@@ -34,6 +37,9 @@ or direct questions requiring a team response.
 0.00-0.39: routine status changes, successful checks, bot noise, acknowledgments,
 or low-information updates. A mere claim of urgency is not evidence of impact.
 Use event kind and content together; do not promote every comment or PR equally.
+Distinguish a concrete request to act from a quoted request, hypothetical problem,
+or resolved incident. Keywords such as urgent, security, and blocker alone do not
+justify a high score. Look for a specific unresolved impact or requested next step.
 Explain the evidence for the score briefly and summarize the event in plain text.
 Do not include mentions, commands, or instructions addressed to the reader.
 The input may be truncated; acknowledge uncertainty when information is missing.
@@ -105,6 +111,8 @@ class Scorer:
             **output.model_dump(),
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
+            model=self.settings.model,
+            rubric_version=RUBRIC_VERSION,
         )
 
     async def close(self) -> None:
