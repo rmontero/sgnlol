@@ -91,6 +91,7 @@ class Settings:
     slack_bot_token: str = field(default="", repr=False)
     slack_bot_user_id: str = ""
     openai_api_key: str = field(default="", repr=False)
+    openai_webhook_secret: str = field(default="", repr=False)
     model: str = "gpt-4.1-mini"
     batch_window_seconds: float = 10
     max_attempts: int = 3
@@ -123,6 +124,7 @@ class Settings:
             slack_bot_token=os.getenv("SLACK_BOT_TOKEN", ""),
             slack_bot_user_id=os.getenv("SLACK_BOT_USER_ID", ""),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            openai_webhook_secret=os.getenv("OPENAI_WEBHOOK_SECRET", ""),
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             batch_window_seconds=float(os.getenv("BATCH_WINDOW_SECONDS", "10")),
             max_attempts=int(os.getenv("MAX_ATTEMPTS", "3")),

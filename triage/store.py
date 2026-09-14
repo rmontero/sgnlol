@@ -25,6 +25,10 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS openai_webhook_events (
+                id TEXT PRIMARY KEY, webhook_id TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL, payload TEXT NOT NULL, received_at REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS events (
                 key INTEGER PRIMARY KEY, id TEXT NOT NULL, org_id TEXT NOT NULL,
                 source TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
@@ -70,6 +74,24 @@ class Store:
                 "Event identifier missing or ambiguous; include tenant and source in IDs"
             )
         return rows[0]
+
+    def record_openai_event(self, payload: dict, webhook_id: str) -> bool:
+        """Commit a provider receipt before acknowledging; retries are idempotent."""
+        with self._transaction():
+            cursor = self.db.execute(
+                "INSERT OR IGNORE INTO openai_webhook_events(id,webhook_id,type,payload,received_at) VALUES(?,?,?,?,?)",
+                (payload["id"], webhook_id, payload["type"], json.dumps(payload), time.time()),
+            )
+            return cursor.rowcount == 1
+
+    def openai_events(self, limit=50) -> list[dict]:
+        """List receipt metadata without exposing raw event data."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT id,webhook_id,type,received_at FROM openai_webhook_events ORDER BY received_at DESC LIMIT ?",
+                (max(0, min(int(limit), 1000)),),
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def enqueue(self, event: Event) -> bool:
         with self._transaction():

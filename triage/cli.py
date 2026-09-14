@@ -30,6 +30,7 @@ def parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("validate-config", "Validate routing configuration"),
         ("stats", "Show queue, filtering, and token counts"),
+        ("openai-events", "List received OpenAI webhook metadata"),
         ("digest", "Print filtered items locally; no Slack delivery"),
         ("set-threshold", "Atomically update an organization or repository threshold"),
         ("batches", "List failed and unknown batches for manual reconciliation"),
@@ -40,7 +41,7 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("org")
             command.add_argument("threshold", type=float)
             command.add_argument("--repo", help="Existing repository owner/name")
-        if name in {"digest", "batches"}:
+        if name in {"digest", "batches", "openai-events"}:
             command.add_argument("--limit", type=int, default=50)
     return result
 
@@ -115,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
             store = Store(database_path)
             if args.command == "stats":
                 result = store.stats()
+            elif args.command == "openai-events":
+                result = store.openai_events(args.limit)
             elif args.command == "digest":
                 result = store.filtered(args.limit)
             else:

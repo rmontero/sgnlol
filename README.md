@@ -34,6 +34,8 @@ sgnlol batches
 
 See [operations](docs/OPERATIONS.md) for provider registration, container startup, thresholds, recovery, backups, and monitoring.
 
+For OpenAI event receipt, configure the [OpenAI webhook endpoint](docs/OPENAI_WEBHOOK.md).
+
 ## Behavior
 
 - GitHub PR activity, reviews, review comments, and PR issue comments are accepted only for explicitly configured repositories.

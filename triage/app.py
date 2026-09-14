@@ -3,12 +3,16 @@
 import asyncio
 import hashlib
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import ValidationError
+from standardwebhooks import WebhookVerificationError
 
 from .config import Settings, load_config
 from .ingest import normalize_github, normalize_slack, verify_github, verify_slack
+from .openai_webhook import OpenAIEvent, verify_openai
 from .store import Store
 
 MAX_BODY = 1024 * 1024
@@ -78,6 +82,29 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
     @app.get("/healthz")
     async def health():
         return {"status": "ok"}
+
+    @app.post("/webhooks/openai")
+    async def openai_webhook(request: Request):
+        body = await body_bytes(request)
+        if not settings.openai_webhook_secret:
+            raise HTTPException(503, "OpenAI webhook signing secret is not configured")
+        try:
+            verify_openai(body, request.headers, settings.openai_webhook_secret)
+        except (WebhookVerificationError, ValueError):
+            raise HTTPException(401, "Invalid signature") from None
+        payload = parse(body)
+        try:
+            OpenAIEvent.model_validate(payload)
+        except ValidationError:
+            raise HTTPException(400, "Invalid OpenAI event envelope") from None
+        webhook_id = request.headers.get("webhook-id", "")
+        if not webhook_id or len(webhook_id) > 256:
+            raise HTTPException(400, "Invalid webhook ID")
+        try:
+            inserted = app.state.store.record_openai_event(payload, webhook_id)
+        except sqlite3.Error:
+            raise HTTPException(503, "Webhook storage unavailable") from None
+        return {"received": True, "duplicate": not inserted}
 
     @app.post("/webhooks/github")
     async def github(request: Request):

@@ -44,3 +44,7 @@ Initial application deployment `04f045c8-5dab-41e2-bea2-b7724b68bc7d` reached SU
 Remote SSH inspection was unavailable because the Railway account has no registered SSH key. No key was added. Application credentials and source routing remain unconfigured; no live GitHub-to-Slack or model calls have been exercised.
 
 Final deployment `48f15844-f5e3-4d15-b9de-dd12f73a656a` reached SUCCESS with `INITIALIZE_EMPTY_CONFIG=0`. Its public health returned 200 and unsigned webhook requests returned 401 again. Successful startup with initialization disabled confirms the routing file persisted across the redeploy. The volume mount was read back as `/app/data`.
+
+## OpenAI event receiver
+
+`POST /webhooks/openai` receives signed OpenAI project events. Set `OPENAI_WEBHOOK_SECRET` to the secret OpenAI provides when registering the endpoint. See [OPENAI_WEBHOOK.md](OPENAI_WEBHOOK.md) for setup and receipt inspection. This is independent of the API key used for relevance scoring.
