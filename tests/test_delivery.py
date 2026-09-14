@@ -149,3 +149,14 @@ def test_non_https_link_is_removed():
     data = batch()
     data["events"][0]["url"] = "javascript:alert(1)"
     assert "accessory" not in _payload(data)["blocks"][1]
+
+@pytest.mark.parametrize('code', ['messages_tab_disabled', 'missing_scope', 'channel_not_found', 'secret-response-content'])
+async def test_safe_diagnostic_codes(code):
+    client = await delivery(lambda request: httpx.Response(200, json={'ok': False, 'error': code}))
+    try:
+        with pytest.raises(DeliveryError) as caught:
+            await client.send(batch())
+        assert caught.value.code == (None if code == 'secret-response-content' else code)
+        assert 'secret-response-content' not in str(caught.value)
+    finally:
+        await client.close()

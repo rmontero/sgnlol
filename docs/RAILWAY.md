@@ -56,3 +56,9 @@ The subsequent initial-setup deployment `48f15844-f5e3-4d15-b9de-dd12f73a656a` r
 ## OpenAI event receiver
 
 `POST /webhooks/openai` receives signed OpenAI project events. Set `OPENAI_WEBHOOK_SECRET` to the secret OpenAI provides when registering the endpoint. See [OPENAI_WEBHOOK.md](OPENAI_WEBHOOK.md) for setup and receipt inspection. This is independent of the API key used for relevance scoring.
+
+## Dashboard release (2026-09-14)
+
+Deployment `4384061b-8be2-47f5-afbe-43915778ac4f` reached SUCCESS from code commit `28449be`. HTTPS health returned 200, unauthenticated dashboard/API requests returned 401 with no-store, and authenticated dashboard, overview and routing reads returned 200. The deployed routing matches #ai-tinkerers and @rob as documented in DASHBOARD.md.
+
+Initial live tests exposed exhausted OpenAI credits and a disabled Slack Messages tab; both failures were visible as fallback/failed records, never counted as successful model relevance. The Messages tab was enabled through the Slack CLI while preserving HTTP event subscriptions and existing scopes. Updated safe provider diagnostics are included in the follow-up release.

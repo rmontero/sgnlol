@@ -14,6 +14,7 @@ class DeliveryError(Exception):
         self, message: str, retryable: bool = False, uncertain: bool = False, retry_after: float = 0
     ):
         super().__init__(message)
+        self.code = None
         self.retryable = retryable
         self.uncertain = uncertain
         self.retry_after = retry_after
@@ -145,7 +146,15 @@ class SlackDelivery:
                 raise DeliveryError("Slack delivery outcome is unknown", uncertain=True)
             if result.get("error") == "ratelimited":
                 raise DeliveryError("Slack rate limit", retryable=True, retry_after=1)
-            raise DeliveryError("Slack rejected delivery; check token permissions and recipient")
+            error = DeliveryError("Slack rejected delivery; check token permissions and recipient")
+            # Persist only known codes, never arbitrary provider text or response bodies.
+            if result.get("error") in {
+                "messages_tab_disabled", "channel_not_found", "not_in_channel", "missing_scope",
+                "invalid_auth", "token_revoked", "account_inactive", "invalid_blocks", "invalid_metadata",
+                "is_archived", "restricted_action", "no_permission",
+            }:
+                error.code = result["error"]
+            raise error
         raise DeliveryError("Slack returned an invalid response", uncertain=True)
 
     async def close(self):

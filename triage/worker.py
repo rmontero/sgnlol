@@ -46,17 +46,19 @@ class Worker:
                 timeout=min(self.settings.scoring_timeout_seconds, 90),
             )
             score = Score.model_validate(score)
-        except Exception:
+        except Exception as error:
+            diagnostic = ("OpenAI API credits exhausted" if getattr(error, "code", None) in
+                          {"credit_balance_exhausted", "insufficient_quota"} else "Scoring failed")
             attempt = self.store.attempt_count(event.id)
             if attempt < self.settings.max_attempts:
-                self.store.retry(event.id, "Scoring failed", self._backoff(attempt))
+                self.store.retry(event.id, diagnostic, self._backoff(attempt))
                 return
             if self.settings.fail_safe == "dead_letter":
-                self.store.dead_letter(event.id, "Scoring attempts exhausted")
+                self.store.dead_letter(event.id, diagnostic + "; scoring attempts exhausted")
                 return
             score = Score(
                 score=1,
-                rationale="Scoring unavailable after bounded retries; forwarding for review",
+                rationale=diagnostic + "; unavailable after bounded retries; forwarding for review",
                 summary="Scoring unavailable. Review the original event.",
                 fallback=True,
             )
@@ -108,7 +110,7 @@ class Worker:
                 )
                 self.store.retry_batch(batch["id"], "Explicit retryable Slack rejection", delay)
             else:
-                self.store.fail_batch(batch["id"], "Slack rejected delivery or retry limit reached")
+                self.store.fail_batch(batch["id"], "Slack rejected delivery or retry limit reached" + (f" ({error.code})" if error.code else ""))
         except Exception:
             # Unexpected failures may occur after Slack accepted a write.
             self.store.unknown_batch(

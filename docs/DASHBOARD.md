@@ -64,3 +64,9 @@ An `unknown` delivery may already have reached Slack. Inspect Slack and the batc
 `ROUTING_CONFIG_YAML` is the authoritative startup override. The Railway launcher validates it and atomically persists it to `/app/data/orgs.yaml`; invalid YAML stops startup and preserves the previous file. Removing the variable preserves the last persisted YAML. See [RAILWAY.md](RAILWAY.md).
 
 The existing `sgnlol set-threshold ORG_ID 0.7 [--repo owner/name]` command edits that file. If `ROUTING_CONFIG_YAML` remains set, its values overwrite such edits at the next startup. Update the Railway variable when using it as the configuration authority.
+
+## Slack manifest
+
+The installed app uses HTTP Events API with Socket Mode disabled. Its Messages tab is enabled so the configured user recipient can receive flags. The generated starter shortcut and slash command were removed from the deployed manifest because they require Socket Mode or HTTP handlers; the triage service does not implement them. No additional OAuth scopes were requested.
+
+Provider diagnostics record known safe error codes (for example `messages_tab_disabled`) and identify exhausted OpenAI credits without storing raw provider error bodies. Historical failed batches remain failed; fixing configuration does not automatically resend them.

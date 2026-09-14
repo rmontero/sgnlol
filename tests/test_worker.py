@@ -165,3 +165,31 @@ async def test_invalid_config_preserves_queue_and_run_survives(worker, caplog):
     assert worker.store.stats()["batches"] == {"pending": 1}
     worker.delivery.send.assert_not_awaited()
     assert "secret" not in caplog.text
+
+async def test_quota_failure_records_actionable_safe_reason(worker):
+    failure = RuntimeError('secret provider content')
+    failure.code = 'credit_balance_exhausted'
+    worker.scorer.score.side_effect = failure
+    worker.store.enqueue(event())
+    await worker.tick()
+    row = worker.store.db.execute('SELECT error FROM events').fetchone()
+    assert row['error'] == 'OpenAI API credits exhausted'
+    ready_retries(worker)
+    await worker.tick()
+    from triage.analytics import Analytics
+    result = Analytics(worker.store).event(event().id)
+    assert result['score']['fallback'] is True
+    assert 'credits exhausted' in result['score']['rationale']
+    assert 'secret provider content' not in str(result)
+
+
+async def test_delivery_failure_preserves_only_safe_provider_code(worker):
+    ready_batch(worker)
+    failure = DeliveryError('provider secret content')
+    failure.code = 'messages_tab_disabled'
+    worker.delivery.send.side_effect = failure
+    await worker.tick()
+    from triage.analytics import Analytics
+    result = Analytics(worker.store).deliveries()['items'][0]
+    assert 'messages_tab_disabled' in result['error']
+    assert 'secret' not in result['error']
