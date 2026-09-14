@@ -122,7 +122,11 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
         delivery_id = request.headers.get("x-github-delivery", "")
         if not delivery_id or len(delivery_id) > 256:
             raise HTTPException(400, "Missing or invalid delivery ID")
-        event = normalize_github(payload, request.headers.get("x-github-event", ""), delivery_id, config())
+        active_config = config()
+        event = normalize_github(payload, request.headers.get("x-github-event", ""), delivery_id, active_config)
+        from .routing import source_allowed
+        if event and not source_allowed(event, active_config):
+            event = None
         if event:
             event.metadata["webhook_body_sha256"] = hashlib.sha256(body).hexdigest()
         queued = app.state.store.enqueue(event) if event else False
@@ -144,7 +148,11 @@ def create_app(settings=None, store=None, scorer=None, delivery=None, run_worker
             if not isinstance(challenge, str):
                 raise HTTPException(400, "Invalid challenge")
             return {"challenge": challenge}
-        event = normalize_slack(payload, config(), settings.slack_bot_user_id)
+        active_config = config()
+        event = normalize_slack(payload, active_config, settings.slack_bot_user_id)
+        from .routing import source_allowed
+        if event and not source_allowed(event, active_config):
+            event = None
         queued = app.state.store.enqueue(event) if event else False
         return {"accepted": True, "queued": queued}
 

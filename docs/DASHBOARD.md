@@ -75,7 +75,7 @@ An `unknown` delivery may already have reached Slack. Inspect Slack and the batc
 
 ## Change routing
 
-`ROUTING_CONFIG_YAML` is the authoritative startup override. The Railway launcher validates it and atomically persists it to `/app/data/orgs.yaml`; invalid YAML stops startup and preserves the previous file. Removing the variable preserves the last persisted YAML. See [RAILWAY.md](RAILWAY.md).
+`ROUTING_CONFIG_YAML` provisions the base routing file at startup. Once an admin saves Sources, the persistent admin override takes precedence. The Railway launcher validates it and atomically persists it to `/app/data/orgs.yaml`; invalid YAML stops startup and preserves the previous file. Removing the variable preserves the last persisted YAML. See [RAILWAY.md](RAILWAY.md).
 
 The existing `sgnlol set-threshold ORG_ID 0.7 [--repo owner/name]` command edits that file. If `ROUTING_CONFIG_YAML` remains set, its values overwrite such edits at the next startup. Update the Railway variable when using it as the configuration authority.
 
@@ -90,3 +90,13 @@ Provider diagnostics record known safe error codes (for example `messages_tab_di
 Set `REDIS_URL` to the private Railway Redis service reference `${{Redis.REDIS_URL}}`. The cache stores only short-lived dashboard event/overview/delivery responses. `CACHE_TTL_SECONDS` defaults to 5 (allowed 1–60); keys include account permissions, organization scope, request filters, and SQLite change versions. Authentication, users, and routing are always read from their authoritative sources. Entries expire and never replace durable SQLite records or webhook deduplication.
 
 Redis connection/read/write failures fall back to SQLite with short connection timeouts and a five-second retry delay. Without `REDIS_URL`, caching is disabled. Admins can inspect cache hits, misses, and errors in **Users & access** or `/api/dashboard/cache`. Redis stays on Railway's private network with no public TCP proxy. The current deployment is a single app replica with a persistent SQLite volume.
+
+## Admin source management
+
+Admins open **Sources** to add or edit a Slack channel or a GitHub repository in an existing organization. Use Slack IDs (not display names); GitHub repositories must belong to the organization's configured owner. Each source supports enable/disable, an optional score threshold, explicit alert destinations, user/group mentions, and literal include/exclude phrases. Include matches any phrase without case sensitivity; exclusions take priority. Matching content is still scored, and only scores at or above the threshold create alerts. GitHub sources can select PR updates, comments on PRs, reviews, and review comments; standalone issues are not monitored.
+
+Use a Slack user ID (`U…`/`W…`) as the destination for a DM, or a channel ID (`C…`/`G…`) to post in a channel. User/group IDs (`U…`/`W…`/`S…`) in **Mentions** are rendered in a separate trusted mention block. For a group mention, choose a channel that group can access. Event content and model output remain plain text and cannot introduce mentions.
+
+Saving a source updates routing immediately, including rechecking pending deliveries. It does not backfill events, install webhooks, invite the Slack app, or expand provider scopes. Invite the bot to source/destination channels. The current Slack installation receives public-channel events; private-channel monitoring requires the corresponding Slack scopes and event subscription. New GitHub repositories need the existing signed webhook endpoint and supported event subscriptions.
+
+Admin changes are atomically stored in `/app/data/orgs.yaml.admin.yaml` (mode 0600). This file takes precedence over the base routing YAML, including `ROUTING_CONFIG_YAML` provisioning on restart. Back up both routing files as well as SQLite. CLI edits to the base file do not override admin-managed settings. Concurrent stale saves return 409 and require a refresh. Existing sources retain their previous routing until edited; editing a repository with explicit destinations enables that destination override.

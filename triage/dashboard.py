@@ -33,6 +33,8 @@ class UserInput(BaseModel):
 
 
 def install_dashboard(app, settings):
+    from .sources import Sources, SourceInput, SourceConflict
+    sources = Sources(settings.config_path)
     basic = HTTPBasic(auto_error=False)
     attempts = {}
     attempt_lock = Lock()
@@ -224,6 +226,28 @@ def install_dashboard(app, settings):
             raise HTTPException(503, 'Routing configuration unavailable') from None
         scope = request.state.principal.scope
         return {'orgs': [org.model_dump() for org in config.orgs if scope is None or org.id in scope]}
+
+    @router.get('/api/dashboard/sources', dependencies=[Depends(permission('sources:manage'))])
+    def source_list():
+        try:
+            return sources.read()
+        except (OSError, ValueError):
+            raise HTTPException(503, 'Source configuration unavailable') from None
+
+    @router.put('/api/dashboard/sources', dependencies=[Depends(permission('sources:manage'))])
+    async def source_save(request: Request):
+        data = await verified_json(request)
+        try:
+            value = SourceInput.model_validate(data)
+            return sources.save(value)
+        except SourceConflict as exc:
+            raise HTTPException(409, str(exc)) from None
+        except ValidationError:
+            raise HTTPException(400, 'Invalid source settings. Check IDs, repository owner, and thresholds.') from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except OSError:
+            raise HTTPException(503, 'Could not persist source configuration') from None
 
     @router.get('/api/dashboard/cache', dependencies=[Depends(permission('cache:read'))])
     def cache_status(request: Request):

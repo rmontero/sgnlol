@@ -26,6 +26,7 @@
         ><button class="nav-item" data-view="routing" data-permission="routing:read" hidden>
           <span aria-hidden="true">⌘</span> Routing
         </button>
+        <button class="nav-item" data-view="sources" data-permission="sources:manage" hidden>Sources</button>
         <button class="nav-item" data-view="users" data-permission="users:manage" hidden>Users &amp; access</button>
       </nav>
       <div class="sidebar-bottom">
@@ -181,6 +182,32 @@
           <p>Configured sources, thresholds, and flag recipients.</p>
         </div>
         <div id="routing" class="routing-grid" aria-live="polite"></div>
+      </section>
+      <section id="sources-view" class="view" hidden>
+        <div class="section-heading"><h2>Monitored sources</h2><p>Add or edit sources. Disabled sources stop new monitoring and pending alerts.</p></div>
+        <div id="sources" class="routing-grid" aria-live="polite"></div>
+        <form id="source-form" class="user-form">
+          <h3 id="source-form-title">Add source</h3>
+          <label>Organization<select id="source-org" required></select></label>
+          <label>Source type<select id="source-type"><option value="slack">Slack channel</option><option value="github">GitHub repository</option></select></label>
+          <label>Channel ID or owner/repository<input id="source-identity" required maxlength="250" placeholder="C0C18A105S7 or rmontero/sgnlol"></label>
+          <label>Escalation score (0–100)<input id="source-threshold" type="number" min="0" max="100" step="1" placeholder="Use organization default"></label>
+          <label>Alert destinations<input id="source-recipients" maxlength="2000" placeholder="U02C1MHKQF9 or C…"><span>Comma-separated Slack user IDs for DMs or channel IDs. Blank uses the existing organization routing.</span></label>
+          <label>Users or groups to mention<input id="source-mentions" maxlength="1000" placeholder="U… or S…"><span>Comma-separated Slack user or user-group IDs. To notify a group, send the alert to a channel the group can access.</span></label>
+          <label>Include keywords<input id="source-include" maxlength="3000" placeholder="blocker, security, production"><span>Optional: match any phrase, ignoring case. Blank includes all content.</span></label>
+          <label>Exclude keywords<input id="source-exclude" maxlength="3000" placeholder="Optional phrases to skip"><span>Exclusions take priority. Keyword matches still need to meet the model score threshold.</span></label>
+          <fieldset id="source-github-events"><legend>GitHub event types</legend>
+            <label><input type="checkbox" name="github-event" value="pull_request" checked> PR updates</label>
+            <label><input type="checkbox" name="github-event" value="issue_comment" checked> Comments on PRs</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review" checked> PR reviews</label>
+            <label><input type="checkbox" name="github-event" value="pull_request_review_comment" checked> Review comments</label>
+          </fieldset>
+          <label class="checkbox-label"><input id="source-enabled" type="checkbox" checked>Monitoring enabled</label>
+          <div><button class="button secondary" id="save-source" type="submit">Save source</button> <button class="button secondary" id="new-source" type="button">Add another source</button></div>
+          <p id="source-feedback" role="status"></p>
+        </form>
+        <p id="source-setup">Slack: invite the app to each source and destination channel. This installation receives public-channel messages. GitHub: install the webhook on each repository and enable PR, issue comment, PR review, and review comment events. Saving a source does not install provider webhooks or grant permissions. Only new events are monitored.</p>
+        <p>GitHub webhook: <code>https://sgnlol-production.up.railway.app/webhooks/github</code></p>
       </section>
       <section id="users-view" class="view" hidden>
         <div class="section-heading"><h2>Users &amp; access</h2><p>Admins manage accounts. Analysts inspect deliveries and routing. Viewers read scored events.</p></div>

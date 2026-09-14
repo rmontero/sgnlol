@@ -93,7 +93,9 @@ class Worker:
         if not pairs:
             self.store.fail_batch(batch["id"], "Current configuration revoked delivery")
             return
-        outgoing = dict(batch, events=[p[0] for p in pairs], scores=[p[1] for p in pairs])
+        from .routing import source_rule
+        mentions = sorted({mention for raw, _ in pairs for mention in source_rule(Event.model_validate(raw), config).mentions})
+        outgoing = dict(batch, mentions=mentions, events=[p[0] for p in pairs], scores=[p[1] for p in pairs])
         try:
             ts = await asyncio.wait_for(self.delivery.send(outgoing), timeout=30)
         except DeliveryError as error:

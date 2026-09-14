@@ -10,6 +10,7 @@ const state = {
   editingUser: false,
 };
 const titles = {
+  sources: ["Sources", "Choose what to monitor and when to raise an alert."],
   users: ["Users & access", "Manage who can see each organization."],
   inbox: [
     "Signal inbox",
@@ -512,6 +513,7 @@ async function refresh() {
     renderOverview(overview);
     if (target === "inbox") renderEvents(content);
     else if (target === "deliveries") renderDeliveries(content);
+    else if (target === "sources") renderSources(content);
     else if (target === "routing") renderRouting(content);
     else renderUsers(content);
     $("updated").textContent =
@@ -542,7 +544,7 @@ for (const button of document.querySelectorAll("[data-view]"))
       if (active) nav.setAttribute("aria-current", "page");
       else nav.removeAttribute("aria-current");
     }
-    for (const view of ["inbox", "deliveries", "routing", "users"])
+    for (const view of ["inbox", "deliveries", "routing", "users", "sources"])
       $(view + "-view").hidden = view !== state.view;
     $("page-title").textContent = titles[state.view][0];
     $("page-description").textContent = titles[state.view][1];
@@ -638,3 +640,57 @@ document.getElementById("sign-out").addEventListener("click", async () => {
   const response = await fetch("/api/dashboard/logout", {method:"POST",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:"{}"});
   if (response.ok) window.location.replace("/dashboard/login");
 });
+
+const sourceFields = ["identity", "threshold", "recipients", "mentions", "include", "exclude"];
+function sourceTypeChanged() { $("source-github-events").hidden = $("source-type").value !== "github"; }
+function resetSource() {
+  $("source-form").reset(); $("source-identity").readOnly = false;
+  $("source-org").disabled = false; $("source-type").disabled = false;
+  $("source-form-title").textContent = "Add source"; $("source-feedback").textContent = "";
+  sourceTypeChanged();
+}
+function editSource(org, type, identity, rule) {
+  resetSource(); $("source-org").value = org.id; $("source-type").value = type;
+  $("source-org").disabled = true; $("source-type").disabled = true; $("source-identity").readOnly = true;
+  $("source-form-title").textContent = "Edit " + identity;
+  const values = [identity, rule.threshold == null ? "" : rule.threshold * 100, (rule.recipients || []).join(", "), (rule.mentions || []).join(", "), (rule.include_keywords || []).join(", "), (rule.exclude_keywords || []).join(", ")];
+  sourceFields.forEach((field, i) => { $("source-" + field).value = values[i]; });
+  $("source-enabled").checked = rule.enabled !== false;
+  for (const box of document.querySelectorAll('[name="github-event"]')) box.checked = !rule.event_types || rule.event_types.includes(box.value);
+  sourceTypeChanged(); $("source-threshold").focus();
+}
+function renderSources(data) {
+  state.sourceConfig = data;
+  const selected = $("source-org").value;
+  $("source-org").replaceChildren(); $("sources").replaceChildren();
+  for (const org of data.orgs) {
+    const option = node("option", "", org.id + " · GitHub owner: " + org.github_org); option.value = org.id; $("source-org").append(option);
+    const entries = [...org.slack_channels.map(id => ["slack", id, org.slack_rules?.[id] || {}]), ...Object.entries(org.repos).map(([id, rule]) => ["github", id, rule])];
+    for (const [type, identity, rule] of entries) {
+      const card = node("article", "route-card");
+      const edit = node("button", "button secondary", "Edit " + identity); edit.type = "button"; edit.addEventListener("click", () => editSource(org, type, identity, rule));
+      card.append(node("h3", "", identity), node("p", "", org.id + " · " + type + " · " + (rule.enabled === false ? "Disabled" : "Enabled")), node("p", "", "Escalate at " + Math.round((rule.threshold ?? org.threshold) * 100) + "/100 → " + (rule.recipients?.join(", ") || org.recipient || "No destination")), node("p", "", "Mentions: " + (rule.mentions?.join(", ") || "None")), edit);
+      $("sources").append(card);
+    }
+  }
+  if (selected && data.orgs.some(o => o.id === selected)) $("source-org").value = selected;
+  $("save-source").disabled = !data.orgs.length;
+  if (!data.orgs.length) $("source-feedback").textContent = "Configure an organization before adding sources.";
+  sourceTypeChanged();
+}
+$("new-source").addEventListener("click", resetSource);
+$("source-type").addEventListener("change", sourceTypeChanged);
+$("source-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); $("save-source").disabled = true;
+  const list = id => $(id).value.split(",").map(v => v.trim()).filter(Boolean);
+  const rule = {enabled:$("source-enabled").checked, threshold:$("source-threshold").value === "" ? null : Number($("source-threshold").value)/100, recipients:list("source-recipients"), mentions:list("source-mentions"), include_keywords:list("source-include"), exclude_keywords:list("source-exclude")};
+  if ($("source-type").value === "github") rule.event_types = [...document.querySelectorAll('[name="github-event"]:checked')].map(box => box.value);
+  try {
+    const response = await fetch("/api/dashboard/sources", {method:"PUT",headers:{"Content-Type":"application/json","X-Sgnlol-Request":"dashboard"},body:JSON.stringify({revision:state.sourceConfig.revision,org_id:$("source-org").value,source:$("source-type").value,identity:$("source-identity").value.trim(),rule})});
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not save source");
+    resetSource(); renderSources(data); $("source-feedback").textContent = "Saved. Monitoring uses these settings immediately and after redeployment.";
+  } catch (err) { $("source-feedback").textContent = err.message; }
+  finally { $("save-source").disabled = false; }
+});
+sourceTypeChanged();

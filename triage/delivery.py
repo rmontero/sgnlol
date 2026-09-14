@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import re
 from urllib.parse import urlsplit
 
 import httpx
@@ -50,6 +51,13 @@ def _payload(batch: dict) -> dict:
     header = f"Relevance triage · {len(events)} update(s)"
     lines = [header]
     blocks = [{"type": "section", "text": {"type": "plain_text", "text": header}}]
+    # Only validated operator-configured IDs can enter a mention block.
+    mentions = batch.get("mentions", [])
+    if len(mentions) > 20 or any(not isinstance(m, str) or not re.fullmatch(r"(?:U|W|S)[A-Z0-9]{2,30}", m) for m in mentions):
+        raise DeliveryError("Invalid configured mentions")
+    if mentions:
+        text = " ".join(f"<!subteam^{m}>" if m.startswith("S") else f"<@{m}>" for m in mentions)
+        blocks.append({"type":"section", "text":{"type":"mrkdwn", "text":text, "verbatim":True}})
     ranked = sorted(
         zip(events, scores, strict=True), key=lambda pair: float(pair[1]["score"]), reverse=True
     )

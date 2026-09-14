@@ -12,7 +12,7 @@ from dataclasses import dataclass
 PERMISSIONS = {
     'viewer': frozenset({'events:read'}),
     'analyst': frozenset({'events:read', 'deliveries:read', 'routing:read'}),
-    'admin': frozenset({'events:read', 'deliveries:read', 'routing:read', 'users:manage', 'cache:read'}),
+    'admin': frozenset({'events:read', 'deliveries:read', 'routing:read', 'users:manage', 'cache:read', 'sources:manage'}),
 }
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -12,10 +13,30 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class RepoConfig(BaseModel):
+class SourceRule(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     recipients: list[str] = Field(default_factory=list)
     threshold: float | None = Field(default=None, ge=0, le=1)
+
+    enabled: bool = True
+    override_recipients: bool = False
+    mentions: list[str] = Field(default_factory=list, max_length=20)
+    include_keywords: list[str] = Field(default_factory=list, max_length=30)
+    exclude_keywords: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("mentions")
+    @classmethod
+    def valid_mentions(cls, values):
+        if any(not re.fullmatch(r"(?:U|W|S)[A-Z0-9]{2,30}", v) for v in values):
+            raise ValueError("Mentions must be Slack user IDs or user-group IDs")
+        return list(dict.fromkeys(values))
+
+    @field_validator("include_keywords", "exclude_keywords")
+    @classmethod
+    def valid_keywords(cls, values):
+        if any(not v.strip() or len(v) > 100 for v in values):
+            raise ValueError("Keywords must contain 1 to 100 characters")
+        return list(dict.fromkeys(v.strip() for v in values))
 
     @field_validator("recipients")
     @classmethod
@@ -23,6 +44,11 @@ class RepoConfig(BaseModel):
         if any(not value.strip() or value != value.strip() for value in values):
             raise ValueError("Recipients must be nonempty and have no surrounding whitespace")
         return list(dict.fromkeys(values))
+
+
+class RepoConfig(SourceRule):
+    event_types: list[Literal["pull_request", "issue_comment", "pull_request_review", "pull_request_review_comment"]] = Field(
+        default_factory=lambda: ["pull_request", "issue_comment", "pull_request_review", "pull_request_review_comment"], min_length=1)
 
 
 class OrgConfig(BaseModel):
@@ -35,6 +61,7 @@ class OrgConfig(BaseModel):
     threshold: float = Field(default=0.7, ge=0, le=1)
     repos: dict[str, RepoConfig] = Field(default_factory=dict)
     slack_channels: list[str] = Field(default_factory=list)
+    slack_rules: dict[str, SourceRule] = Field(default_factory=dict)
 
     @field_validator("id", "github_org", "slack_team_id", "recipient")
     @classmethod
@@ -52,6 +79,8 @@ class OrgConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_repositories(self) -> "OrgConfig":
+        if not set(self.slack_rules) <= set(self.slack_channels):
+            raise ValueError("Slack rules must reference configured channels")
         normalized = set()
         for repo in self.repos:
             parts = repo.split("/")
@@ -141,6 +170,10 @@ class Settings:
 
 def load_config(path: str | Path) -> AppConfig:
     """Read each time so edits take effect without a restart; invalid edits fail closed."""
+    path = Path(path)
+    override = path.with_name(path.name + '.admin.yaml')
+    if override.exists():
+        path = override
     try:
         with Path(path).open(encoding="utf-8") as stream:
             document = yaml.safe_load(stream)
