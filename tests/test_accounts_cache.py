@@ -61,6 +61,9 @@ def test_password_hash_and_bootstrap_never_override():
     store = Store(':memory:')
     users = Accounts(store)
     users.bootstrap('rob', PASSWORD)
+    with pytest.raises(ValueError, match='printable ASCII'):
+        users.save('rob', 'admin', [], password='unicode-password-🔒')
+    assert users.authenticate('rob', PASSWORD)
     users.save('rob', 'admin', [], password='replacement-password')
     users.bootstrap('rob', PASSWORD)
     assert users.authenticate('rob', PASSWORD) is None

@@ -100,8 +100,8 @@ class Accounts:
             raise ValueError('Invalid organization assignments')
         if role != 'admin' and not orgs:
             raise ValueError('Non-admin users require organization assignments')
-        if password is not None and not 12 <= len(password) <= 1024:
-            raise ValueError('Passwords must contain 12 to 1024 characters')
+        if password is not None and (not 12 <= len(password) <= 1024 or not password.isascii() or not password.isprintable()):
+            raise ValueError('Passwords must contain 12 to 1024 printable ASCII characters')
         hashed = password_hash(password) if password is not None else None
         with self.store._lock:
             old = self.store.db.execute('SELECT * FROM dashboard_users WHERE username=?', (username,)).fetchone()
